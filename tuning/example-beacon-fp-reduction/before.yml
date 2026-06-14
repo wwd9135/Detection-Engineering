@@ -1,0 +1,29 @@
+title: Windows Registry Run Key Persistence via Sysmon
+id: a7f3c2e1-84b6-4d2a-9f1e-3c8b5a6d7e90
+status: experimental
+description: |
+  Detects a registry value being set under the standard Windows Run and RunOnce
+  autostart locations via Sysmon Event ID 13 (RegistryEvent - Value Set).
+  BEFORE TUNING — no exclusion filters applied.
+references:
+  - https://attack.mitre.org/techniques/T1547/001/
+author: William Richardson
+date: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.t1547.001
+logsource:
+  product: windows
+  category: registry_set
+detection:
+  selection:
+    EventType: SetValue
+    TargetObject|contains:
+      - '\Software\Microsoft\Windows\CurrentVersion\Run\'
+      - '\Software\Microsoft\Windows\CurrentVersion\RunOnce\'
+      - '\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run\'
+      - '\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce\'
+  condition: selection
+falsepositives:
+  - Any process that writes to Run or RunOnce keys — includes msiexec, installers, management agents
+level: high

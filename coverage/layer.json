@@ -1,0 +1,63 @@
+{
+  "name": "Detection Engineering Portfolio Coverage",
+  "versions": {
+    "attack": "14",
+    "navigator": "4.9",
+    "layer": "4.5"
+  },
+  "domain": "enterprise-attack",
+  "description": "ATT&CK techniques covered by detections in this portfolio. Green = stable (validated in lab), Yellow = experimental.",
+  "filters": {
+    "platforms": [
+      "Windows"
+    ]
+  },
+  "sorting": 0,
+  "layout": {
+    "layout": "side",
+    "aggregateFunction": "average",
+    "showID": true,
+    "showName": true,
+    "showAggregateScores": false,
+    "countUnscored": false,
+    "expandedSubtechniques": "annotated"
+  },
+  "hideDisabled": false,
+  "techniques": [
+    {
+      "techniqueID": "T1547.001",
+      "tactic": "persistence",
+      "score": 2,
+      "color": "#4caf50",
+      "comment": "Stable — Sigma rule validated via Atomic Red Team T1547.001 Test 1 in home lab. See detections/persistence/T1547.001-registry-run-keys/",
+      "enabled": true,
+      "metadata": [],
+      "links": [],
+      "showSubtechniques": false
+    }
+  ],
+  "gradient": {
+    "colors": [
+      "#ffeda0",
+      "#4caf50"
+    ],
+    "minValue": 0,
+    "maxValue": 2
+  },
+  "legendItems": [
+    {
+      "label": "Stable (validated in lab)",
+      "color": "#4caf50"
+    },
+    {
+      "label": "Experimental (rule exists, not fully validated)",
+      "color": "#ffeda0"
+    }
+  ],
+  "metadata": [],
+  "links": [],
+  "showTacticRowBackground": true,
+  "tacticRowBackground": "#dddddd",
+  "selectTechniquesAcrossTactics": true,
+  "selectSubtechniquesWithParent": false
+}

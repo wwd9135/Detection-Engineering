@@ -1,0 +1,189 @@
+# ============================================================
+# CI Workflow: Sigma Lint + Compile
+# ============================================================
+#
+# PURPOSE
+# -------
+# Automatically validate every Sigma rule in the detections/
+# folder on every push and pull request. Two jobs:
+#
+#   1. lint        — runs `sigma check` to validate rule syntax
+#                    and best practices. Fails the build on error.
+#   2. compile-test — runs `sigma convert` to compile rules to KQL
+#                    as a compile-sanity check. Marked
+#                    continue-on-error so it won't block merges
+#                    while the pipeline is being refined.
+#
+# ============================================================
+
+# The 'name' key is what GitHub displays as the workflow title
+# in the Actions tab.
+name: Sigma Lint and Compile
+
+# ============================================================
+# TRIGGERS (on:)
+# ============================================================
+# Control when this workflow runs.
+#
+# 'push' fires on every commit pushed to any branch.
+# 'pull_request' fires when a PR is opened, updated, or synced.
+#
+# 'paths' limits the trigger: this workflow only runs when
+# files under detections/ are modified. Pushes that only touch
+# docs/ or README.md won't trigger a lint run — keeps CI fast.
+# ============================================================
+on:
+  push:
+    paths:
+      - 'detections/**'       # any file inside detections/
+      - 'requirements.txt'    # toolchain change should re-validate
+      - '.github/workflows/lint.yml'  # self: workflow file change
+  pull_request:
+    paths:
+      - 'detections/**'
+      - 'requirements.txt'
+      - '.github/workflows/lint.yml'
+
+# ============================================================
+# JOBS
+# ============================================================
+# Jobs run in parallel by default unless you specify 'needs:'.
+# Each job runs in a fresh virtual machine (the 'runner').
+# ============================================================
+jobs:
+
+  # ----------------------------------------------------------
+  # JOB 1: lint
+  # ----------------------------------------------------------
+  # Validates all Sigma rules using `sigma check`.
+  # A non-zero exit code from sigma check FAILS the build,
+  # blocking a merge until the rule issues are fixed.
+  # ----------------------------------------------------------
+  lint:
+    # 'runs-on' specifies the runner OS.
+    # ubuntu-latest is cheapest for Python-based CI.
+    runs-on: ubuntu-latest
+
+    # A human-readable name shown in the GitHub Actions UI.
+    name: Validate Sigma rules (sigma check)
+
+    steps:
+      # --------------------------------------------------------
+      # STEP: Checkout
+      # --------------------------------------------------------
+      # 'actions/checkout' clones the repository into the runner.
+      # Without this, no source files are available.
+      # --------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------------
+      # STEP: Set up Python
+      # --------------------------------------------------------
+      # 'actions/setup-python' installs the specified Python
+      # version and adds it to PATH. We pin to 3.11 for
+      # reproducibility — change to '3.x' to always get latest.
+      # --------------------------------------------------------
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          # 'cache' stores the pip download cache between runs.
+          # This makes subsequent runs faster when requirements.txt
+          # hasn't changed — pip skips re-downloading packages.
+          cache: 'pip'
+
+      # --------------------------------------------------------
+      # STEP: Install dependencies
+      # --------------------------------------------------------
+      # Installs sigma-cli, pySigma, and the Sentinel backend
+      # from requirements.txt. The -r flag reads the file.
+      # --------------------------------------------------------
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      # --------------------------------------------------------
+      # STEP: Run sigma check
+      # --------------------------------------------------------
+      # `sigma check` validates all .yml files found recursively
+      # under the detections/ directory.
+      #
+      # It checks for:
+      #   - Valid YAML syntax
+      #   - Required fields (title, id, status, etc.)
+      #   - Valid logsource / detection structure
+      #   - ATT&CK tag format
+      #   - Best practice warnings (configurable via --config)
+      #
+      # The exit code is non-zero if any rule fails validation.
+      # GitHub Actions treats a non-zero exit as a step failure,
+      # which fails the job, which fails the build.
+      # --------------------------------------------------------
+      - name: Run sigma check on all rules
+        run: |
+          sigma check detections/
+          # If you want verbose output for debugging, add --debug:
+          # sigma check --debug detections/
+
+  # ----------------------------------------------------------
+  # JOB 2: compile-test
+  # ----------------------------------------------------------
+  # Compiles all rules to KQL using the microsoft_xdr pipeline
+  # as a compile-sanity check. This catches backend-specific
+  # issues (unsupported field mappings, invalid KQL syntax)
+  # that `sigma check` doesn't catch.
+  #
+  # Marked 'continue-on-error: true' — a compile failure prints
+  # a warning in the UI but does NOT block the merge. Remove
+  # continue-on-error once the pipeline is stable.
+  #
+  # 'needs: lint' means this job waits for the lint job to pass
+  # before it starts. No point compiling rules that fail lint.
+  # ----------------------------------------------------------
+  compile-test:
+    runs-on: ubuntu-latest
+    name: Compile rules to KQL (sigma convert)
+    needs: lint
+
+    # continue-on-error lets this job fail without failing the
+    # overall workflow. Change to false when ready to enforce.
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      # --------------------------------------------------------
+      # STEP: Compile all rules to KQL
+      # --------------------------------------------------------
+      # `sigma convert` translates Sigma YAML to a target format.
+      #
+      # Flags:
+      #   -t kusto           target backend (Kusto / KQL)
+      #   -p microsoft_xdr   pipeline: maps Sigma fields to MDE
+      #                      table fields (DeviceProcessEvents, etc.)
+      #                      Also works for Sentinel via MDE connector.
+      #   detections/        directory to scan recursively for .yml files
+      #
+      # The output is printed to stdout. We're using this purely
+      # as a compile check — the KQL output itself is not saved here
+      # (the committed rule.kql files are the canonical compiled output).
+      #
+      # If you want to save and diff the compile output, pipe to a file:
+      #   sigma convert -t kusto -p microsoft_xdr detections/ > /tmp/compiled.kql
+      # --------------------------------------------------------
+      - name: Compile rules to KQL (compile sanity check)
+        run: |
+          sigma convert \
+            --target kusto \
+            --pipeline microsoft_xdr \
+            detections/

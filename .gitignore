@@ -1,0 +1,100 @@
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# pip
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+.pytest_cache/
+.tox/
+.nox/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# ── Type checkers ─────────────────────────────────────────────────────────────
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+
+# ── OS artefacts ─────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ── Editor / IDE ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# ── Secrets / credentials — NEVER commit these ───────────────────────────────
+.env.local
+.env.*.local
+*.pem
+*.key
+*_credentials*
+*_secrets*
+
+# ── Sigma compile output (temp) ───────────────────────────────────────────────
+# Temporary compile output from sigma convert — the canonical compiled
+# KQL lives in rule.kql files that ARE committed.
+/tmp/
+*.kql.tmp
+
+# ── Log exports / raw telemetry ───────────────────────────────────────────────
+# Raw log exports should NOT be committed — only sanitised excerpts
+# go in validation.md or assets/. Block common export formats.
+*.evtx
+*.csv
+*.json.gz
+*.log
+# Exception: keep layer.json (ATT&CK Navigator) and package.json etc.
+!coverage/layer.json
+!**/package.json
+!**/tsconfig.json
+
+# ── Node (if any tooling is added later) ─────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
