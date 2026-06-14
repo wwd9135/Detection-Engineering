@@ -1,0 +1,45 @@
+title: Windows Registry Run Key Persistence via Sysmon
+id: a7f3c2e1-84b6-4d2a-9f1e-3c8b5a6d7e90
+status: stable
+description: |
+  Detects a registry value being set under the standard Windows Run and RunOnce
+  autostart locations via Sysmon Event ID 13 (RegistryEvent - Value Set).
+  Adversaries commonly abuse these keys to achieve persistence by placing a
+  payload path in a Run key so it executes at user logon or system boot.
+references:
+  - https://attack.mitre.org/techniques/T1547/001/
+  - https://learn.microsoft.com/en-us/windows/win32/setupapi/run-and-runonce-registry-keys
+  - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1547.001/T1547.001.md
+author: William Richardson
+date: 2026-06-14
+modified: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.t1547.001
+logsource:
+  product: windows
+  category: registry_set
+detection:
+  selection:
+    EventType: SetValue
+    TargetObject|contains:
+      - '\Software\Microsoft\Windows\CurrentVersion\Run\'
+      - '\Software\Microsoft\Windows\CurrentVersion\RunOnce\'
+      - '\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run\'
+      - '\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce\'
+  # Exclude values written by well-known, high-confidence system processes.
+  # Keep this list tight — every entry here is a potential blind spot.
+  filter_system_processes:
+    Image|startswith:
+      - 'C:\Windows\System32\msiexec.exe'
+      - 'C:\Windows\SysWOW64\msiexec.exe'
+  filter_empty_value:
+    # An empty Details field can indicate a key deletion being logged as a set — not persistence.
+    Details: ''
+  condition: selection and not 1 of filter_*
+falsepositives:
+  - Software installers (Chrome, Firefox, Adobe Reader, etc.) writing their own run-key entries
+  - Endpoint management agents (SCCM, Intune, LANDesk) setting run keys as part of policy
+  - Developers running locally built applications that register a run key during development
+  - Legitimate AV/EDR products registering a service start entry
+level: high

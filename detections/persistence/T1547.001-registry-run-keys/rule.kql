@@ -1,0 +1,61 @@
+// ============================================================
+// Detection: Windows Registry Run Key Persistence
+// Technique: T1547.001 — Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder
+// Tactic:    Persistence (TA0003)
+// Source:    Compiled from rule.yml via pySigma (microsoft_xdr pipeline), hand-reviewed
+// Table:     DeviceRegistryEvents (Microsoft Defender for Endpoint / Sentinel)
+// Author:    William Richardson
+// Date:      2026-06-14
+// ============================================================
+//
+// HOW THIS QUERY WORKS
+// --------------------
+// DeviceRegistryEvents captures registry operations from the MDE sensor.
+// ActionType 'RegistryValueSet' maps to Sysmon Event ID 13.
+// We look for writes to the four standard Run/RunOnce key paths (HKCU and HKLM,
+// plus the 32-bit WOW6432Node equivalents) and then subtract known-good writers.
+//
+// FIELD REFERENCE
+// ---------------
+//   DeviceName            — hostname of the endpoint
+//   InitiatingProcessFileName — the process that made the registry write
+//   InitiatingProcessFolderPath — full path to that process's binary
+//   RegistryKey           — the full registry key path being written
+//   RegistryValueName     — the name of the value within the key
+//   RegistryValueData     — the data written (i.e. the payload path)
+//   Timestamp             — UTC time of the event
+//
+// FALSE POSITIVE NOTES
+// --------------------
+// Software installers (msiexec, per-app installers) frequently write run keys.
+// The filter below excludes msiexec; tune further based on your environment.
+// Do NOT add broad exclusions like "C:\Program Files\" — that path is writable
+// after installation and an adversary could place a payload there.
+
+DeviceRegistryEvents
+| where ActionType == "RegistryValueSet"
+// Match the four standard Run/RunOnce autostart key paths (case-insensitive)
+| where RegistryKey has_any (
+    @"\Software\Microsoft\Windows\CurrentVersion\Run",
+    @"\Software\Microsoft\Windows\CurrentVersion\RunOnce",
+    @"\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run",
+    @"\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce"
+  )
+// Drop events where the value data is empty (can occur during key deletions)
+| where isnotempty(RegistryValueData)
+// Exclude high-confidence system writers — keep this list minimal
+| where InitiatingProcessFolderPath !startswith @"C:\Windows\System32\msiexec.exe"
+    and InitiatingProcessFolderPath !startswith @"C:\Windows\SysWOW64\msiexec.exe"
+// Project the fields most useful for triage
+| project
+    Timestamp,
+    DeviceName,
+    InitiatingProcessAccountName,
+    InitiatingProcessFileName,
+    InitiatingProcessFolderPath,
+    InitiatingProcessCommandLine,
+    InitiatingProcessParentFileName,
+    RegistryKey,
+    RegistryValueName,
+    RegistryValueData
+| order by Timestamp desc
