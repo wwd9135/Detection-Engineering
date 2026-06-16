@@ -37,12 +37,12 @@ on:
     paths:
       - 'detections/**'       # any file inside detections/
       - 'requirements.txt'    # toolchain change should re-validate
-      - '.github/workflows/lint.yml'  # self: workflow file change
+      - '.github/workflows/Sigma_Lint.yml'  # self: workflow file change
   pull_request:
     paths:
       - 'detections/**'
       - 'requirements.txt'
-      - '.github/workflows/lint.yml'
+      - '.github/workflows/Sigma_Lint.yml'
   workflow_dispatch:
     
 

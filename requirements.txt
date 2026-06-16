@@ -23,7 +23,7 @@ pySigma>=0.11.0
 #              DeviceNetworkEvents (MDE Advanced Hunting tables) and
 #              Sentinel ASIM-normalised tables.
 #   https://github.com/SigmaHQ/pySigma-backend-microsoft365defender
-pySigma-backend-microsoft365defender>=1.3.0
+pySigma-backend-microsoft365defender>=0.3.0
 
 # ── pySigma pipelines ─────────────────────────────────────────────────────────
 
