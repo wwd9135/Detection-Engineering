@@ -80,8 +80,19 @@ Supported on any MDE-onboarded device. Can be the main source of truth or used f
 
 ## Atomic Red Team Test Reviewed
 
-> **TODO — to be completed.** Running the relevant Atomic Red Team T1547.001 startup-folder test(s) and recording the command, the writing process, expected telemetry, and confirmation that the rule fires. Filling this in after I run the lab test.
+T1547.001 has four relevant methods to demonstrate exploit of this 
 
+1.  **Suspicious jse file run from startup Folder**
+Copy-Item "$PathToAtomicsFolder\T1547.001\src\jsestartup.jse" "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\jsestartup.jse" <Requires admin or root>
+2. **Suspicious vbs file run from startup Folder** <Required admin or root>
+Copy-Item "$PathToAtomicsFolder\T1547.001\src\vbsstartup.vbs" "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\vbsstartup.vbs"
+3. **Suspicious bat file run from startup Folder** - <Requires admin or root>
+Copy-Item "$PathToAtomicsFolder\T1547.001\src\batstartup.bat" "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\batstartup.bat"
+4. **A .LNK file- Executable Shortcut Link to User Startup Folder (NonMalicious link to redirect to a malicious file location. Will auto run whatever its targeted at, works well as a .LNK is less suspicious than whatever they’re pointing at & the destination can be obfuscated in line.** - <Requires admin or root>
+$Target = "C:\Windows\System32\calc.exe"
+$ShortcutLocation = "$home\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\calc_exe.lnk"
+
+These four options cover the most common attack paths for this specific tactic, in conclusion they provide a solid baseline, and have provided insight into how to target the mechanism rather than entity (Certain file extensions combined with suspicious factors must be blocked automatically, whereas scoping the detection to specific file names, hostnames etc is easy for the attacker to circumnavigate so wasting effort.)
 ---
 
 ## Potential Evasion Paths (noted for blind spots section)
