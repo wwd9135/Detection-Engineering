@@ -1,0 +1,82 @@
+# 1. change field names
+# 2. Change id name (how do we generaate these??)
+title: Windows startup folder persistence via Sysmon
+id: <how do i generate these?>
+status: experimental
+description:
+  Detects edits to the startup folder via Sysmon Event ID 11- FileCreate (File Creation)
+  Targetting commonly exploitable and suspcious file types- .exe, .dll, .ps1, .hta, .vbs
+  Adversaries abuse this technique by the dropping malicious files directly into the startup folder
+  And also by using .LNKs to redirect to malicious files, or .BAT etc to run a script that obsfucates the contents and evades detection.
+references: 
+  - https://attack.mitre.org/techniques/T1547/001/
+  - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1547.001
+author: William Richardson
+date: 2026-06-14
+modified: 2026-06-19
+tags:
+  - attack.persistence
+  - attack.t1547.001
+logsource:
+    product: windows
+    category: file_event
+detection:
+    selection:
+    # Select all files being created in startup folders
+      TargetFilename|contains: 
+      - 'Windows\Start Menu\Programs\Startup\'
+      - 'ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\'
+      - 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'
+    filter_main:
+      - TargetFilename|endswith:
+      # Add or remove suspicious extensions according to your env needs
+      # Grabs any files ending in the following extensions.
+        - '.bat'
+        - '.cmd'
+        - '.dll'
+        - '.hta'
+        - '.jar'
+        - '.js'
+        - '.jse'
+        - '.msi'
+        - '.ps1'
+        - '.psd1'
+        - '.psm1'
+        - '.scr'
+        - '.url'
+        - '.vba'
+        - '.vbe'
+        - '.vbs'
+        - '.wsf'
+        # Debating adding an image one too, could make this very granular, by extension filtering to specific images for example, i'll leave it as is for now though
+    filter_secondary:
+      - TargetFilename | endswith:
+      # Grab any file ending in .lnk, so a shortcut to another file location, common masquarading/ redirection technique,
+        - '.lnk'
+      - Image|endswith: 
+      # Grab suspicious spawns off the back of a .lnk creation, dont think this is the right method tbh, I need a similar mechanism where I can check the contents of the .lnk, the location it points to, just to filter against suspicious exes it points to.
+        - '\ONENOTE.EXE'
+        - '*powershell.exe*' 
+        # The following need changed, I want an exhaustive list of suspicious files that can be spawned from a .lnk, the below wouldnt flag for the most part. 
+        - '.bat'
+        - '.cmd'
+        - '.dll'
+        - '.hta'
+        - '.jar'
+        - '.js'
+        - '.jse'
+        - '.msi'
+        - '.ps1'
+        - '.psd1'
+        - '.psm1'
+        - '.scr'
+        - '.url'
+        - '.vba'
+        - '.vbe'
+        - '.vbs'
+        - '.wsf'
+    condition: selection and not 1 of filter_main and not 1 of filter_secondary
+falsepositives:
+  - Software installers (Chrome, FireFox, OS) writing their own startup folders
+  - Legitimate admin activity, needs to be scoped out depending on environment
+level: high
