@@ -1,7 +1,7 @@
 # 1. change field names
 # 2. Change id name (how do we generaate these??)
 title: Windows startup folder persistence via Sysmon
-id: <how do i generate these?>
+id: a7f3c2e1-84b6-4d2a-9f1e-3c8b5a6d7e90
 status: experimental
 description:
   Detects edits to the startup folder via Sysmon Event ID 11- FileCreate (File Creation)
@@ -50,7 +50,7 @@ detection:
         - '.wsf'
         # Debating adding an image one too, could make this very granular, by extension filtering to specific images for example, i'll leave it as is for now though
     filter_secondary:
-      - TargetFilename | endswith:
+      - TargetFilename|endswith:
       # Grab any file ending in .lnk, so a shortcut to another file location, common masquarading/ redirection technique,
         - '.lnk'
       - Image|endswith: 
