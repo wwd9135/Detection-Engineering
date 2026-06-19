@@ -1,0 +1,2 @@
+DeviceFileEvents
+| where (FolderPath contains "\\Start Menu\\Programs\\Startup\\" and (FolderPath endswith ".bat" or FolderPath endswith ".cmd" or FolderPath endswith ".com" or FolderPath endswith ".exe" or FolderPath endswith ".hta" or FolderPath endswith ".js" or FolderPath endswith ".jse" or FolderPath endswith ".lnk" or FolderPath endswith ".ps1" or FolderPath endswith ".scr" or FolderPath endswith ".url" or FolderPath endswith ".vbe" or FolderPath endswith ".vbs" or FolderPath endswith ".wsf")) and (not(InitiatingProcessFolderPath endswith "\\msiexec.exe"))

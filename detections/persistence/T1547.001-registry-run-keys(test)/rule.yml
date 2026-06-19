@@ -1,16 +1,16 @@
-# 1. change field names
-# 2. Change id name (how do we generaate these??)
-title: Windows startup folder persistence via Sysmon
-id: a7f3c2e1-84b6-4d2a-9f1e-3c8b5a6d7e90
+title: Windows Startup Folder Persistence via Sysmon
+id: e9437397-4604-453b-92a3-feab79e44a2c
 status: experimental
-description:
-  Detects edits to the startup folder via Sysmon Event ID 11- FileCreate (File Creation)
-  Targetting commonly exploitable and suspcious file types- .exe, .dll, .ps1, .hta, .vbs
-  Adversaries abuse this technique by the dropping malicious files directly into the startup folder
-  And also by using .LNKs to redirect to malicious files, or .BAT etc to run a script that obsfucates the contents and evades detection.
-references: 
+description: |
+  Detects a file with a suspicious or executable extension being created in the
+  per-user or all-users Startup folder via Sysmon Event ID 11 (FileCreate).
+  Anything placed in these folders is launched automatically at user logon,
+  making them a common persistence location. Adversaries drop scripts,
+  executables, or shortcuts here so their payload runs on every logon without
+  needing a service, scheduled task, or registry Run key.
+references:
   - https://attack.mitre.org/techniques/T1547/001/
-  - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1547.001
+  - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1547.001/T1547.001.md
 author: William Richardson
 date: 2026-06-14
 modified: 2026-06-19
@@ -18,65 +18,42 @@ tags:
   - attack.persistence
   - attack.t1547.001
 logsource:
-    product: windows
-    category: file_event
+  product: windows
+  category: file_event
 detection:
-    selection:
-    # Select all files being created in startup folders
-      TargetFilename|contains: 
-      - 'Windows\Start Menu\Programs\Startup\'
-      - 'ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\'
-      - 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'
-    filter_main:
-      - TargetFilename|endswith:
-      # Add or remove suspicious extensions according to your env needs
-      # Grabs any files ending in the following extensions.
-        - '.bat'
-        - '.cmd'
-        - '.dll'
-        - '.hta'
-        - '.jar'
-        - '.js'
-        - '.jse'
-        - '.msi'
-        - '.ps1'
-        - '.psd1'
-        - '.psm1'
-        - '.scr'
-        - '.url'
-        - '.vba'
-        - '.vbe'
-        - '.vbs'
-        - '.wsf'
-        # Debating adding an image one too, could make this very granular, by extension filtering to specific images for example, i'll leave it as is for now though
-    filter_secondary:
-      - TargetFilename|endswith:
-      # Grab any file ending in .lnk, so a shortcut to another file location, common masquarading/ redirection technique,
-        - '.lnk'
-      - Image|endswith: 
-      # Grab suspicious spawns off the back of a .lnk creation, dont think this is the right method tbh, I need a similar mechanism where I can check the contents of the .lnk, the location it points to, just to filter against suspicious exes it points to.
-        - '\ONENOTE.EXE'
-        - '*powershell.exe*' 
-        # The following need changed, I want an exhaustive list of suspicious files that can be spawned from a .lnk, the below wouldnt flag for the most part. 
-        - '.bat'
-        - '.cmd'
-        - '.dll'
-        - '.hta'
-        - '.jar'
-        - '.js'
-        - '.jse'
-        - '.msi'
-        - '.ps1'
-        - '.psd1'
-        - '.psm1'
-        - '.scr'
-        - '.url'
-        - '.vba'
-        - '.vbe'
-        - '.vbs'
-        - '.wsf'
-    condition: selection and not 1 of filter_main and not 1 of filter_secondary
+  # WHERE: per-user and all-users Startup folders. This single substring
+  # covers both — the per-user path ends ...\AppData\Roaming\Microsoft\Windows\
+  # Start Menu\Programs\Startup\ and the all-users path ends ...\ProgramData\
+  # Microsoft\Windows\Start Menu\Programs\Startup\ — both share this tail.
+  selection_path:
+    TargetFilename|contains: '\Start Menu\Programs\Startup\'
+  # WHAT: extensions worth surfacing. These WIDEN the catch, so they are
+  # inclusions (selection_), used WITHOUT 'not' in the condition.
+  selection_ext:
+    TargetFilename|endswith:
+      - '.bat'    # executes via cmd.exe
+      - '.cmd'    # executes via cmd.exe
+      - '.com'    # legacy executable
+      - '.exe'    # executes directly
+      - '.hta'    # executes via mshta.exe
+      - '.js'     # executes via wscript.exe
+      - '.jse'    # executes via wscript.exe
+      - '.lnk'    # shortcut; auto-runs its target at logon (see note below)
+      - '.ps1'    # NB: double-click opens Notepad, does NOT auto-run — flagged as anomalous-to-find, not as auto-executing
+      - '.scr'    # executes (screensaver binary)
+      - '.url'    # internet shortcut; can point at a remote/UNC payload
+      - '.vbe'    # executes via wscript.exe
+      - '.vbs'    # executes via wscript.exe
+      - '.wsf'    # executes via wscript.exe
+  # FP reduction — known-good CREATORS of startup items. THIS is what
+  # filter_ + 'not' is for. Keep tight; every entry is a potential blind spot.
+  filter_known_good:
+    Image|endswith:
+      - '\msiexec.exe'
+  condition: all of selection_* and not filter_known_good
 falsepositives:
-  - Software installers (Chrome, FireFox, OS) writing their own startup folders
-  - Legitimate admin activity, needs to be scoped out depending on environment
+  - Tray / auto-start applications that legitimately drop a startup shortcut on install (e.g. Spotify, Steam, OneDrive, Teams)
+  - Users manually placing a shortcut or script in their own Startup folder
+  - GPO / login scripts or management tooling deploying startup items as part of policy
+  - In-house line-of-business apps that self-register a startup entry
 level: high
