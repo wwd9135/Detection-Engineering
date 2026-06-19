@@ -1,2 +1,42 @@
+// ============================================================
+// Detection: Windows Startup folder Persistence
+// Technique: T1547.001 — Boot or Logon Autostart Execution: Startup Folder
+// Tactic:    Persistence (TA0003)
+// Source:    Compiled from rule.yml via pySigma (microsoft_xdr pipeline), hand-reviewed
+// Table:     FileEvents
+// Author:    William Richardson
+// Date:      2026-06-18
+// ============================================================
+//
+// HOW THIS QUERY WORKS
+// --------------------
+// FileEvents captures registry operations from the MDE sensor.
+// ActionType 'FileCreated' maps to Sysmon Event ID 11.
+// We look for file creations in startup folder
+// 
+//
+// FIELD REFERENCE
+// ---------------
+//   TargetFilename        - Full file path of the event
+//   Image                 - .EXE that created the file
+//   UTCTime               - UTC time of the event
+//   ProcessId             - Process used to correlate with other event IDs (1/7)
+//
+// FALSE POSITIVE NOTES
+// --------------------
+// Software installers (msiexec, per-app installers) frequently write run keys.
+// The filter below excludes msiexec; tune further based on your environment.
+// Do NOT add broad exclusions like "C:\Program Files\" — that path is writable
+// after installation and an adversary could place a payload there.
+
+let SuspiciousExtensions = dynamic([
+    ".bat", ".cmd", ".com", ".exe", ".hta", ".js",
+    ".jse", ".lnk", ".ps1", ".scr", ".url", ".vbe", ".vbs", ".wsf"
+]);
 DeviceFileEvents
-| where (FolderPath contains "\\Start Menu\\Programs\\Startup\\" and (FolderPath endswith ".bat" or FolderPath endswith ".cmd" or FolderPath endswith ".com" or FolderPath endswith ".exe" or FolderPath endswith ".hta" or FolderPath endswith ".js" or FolderPath endswith ".jse" or FolderPath endswith ".lnk" or FolderPath endswith ".ps1" or FolderPath endswith ".scr" or FolderPath endswith ".url" or FolderPath endswith ".vbe" or FolderPath endswith ".vbs" or FolderPath endswith ".wsf")) and (not(InitiatingProcessFolderPath endswith "\\msiexec.exe"))
+ | where TargetFilename contains "\\Start Menu\\Programs\\Startup\\"
+ | where not(Image endswith "\\msiexec.exe")
+ | extend FileExt = extract(@"(\.[^.\\]+)$", 1, tolower(FolderPath))
+ | having FileExt in (SuspiciousExtensions)
+ | project TargetFilename, Image, ProcessId, UtcTime
+ | order by UtcTime desc
