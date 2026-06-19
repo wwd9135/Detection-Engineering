@@ -3,7 +3,7 @@
 > **Technique**: T1547.001 — Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder
 > **Tactic**: Persistence (TA0003)
 > **Severity**: High
-> **Status**: Experimental
+> **Status**: Stable
 
 ---
 
