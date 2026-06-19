@@ -2,10 +2,6 @@
 
 *Working notes compiled during rule development. Not polished — this is the actual research trail.*
 
-> **Technique**: T1547.001 — Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder
-> **Tactic**: Persistence (TA0003)
-> **Vector**: Startup-folder file write — the companion rule to the registry Run-key detection, which covers the registry half of T1547.001.
-
 ---
 
 ## Starting Point
@@ -80,19 +76,38 @@ Supported on any MDE-onboarded device. Can be the main source of truth or used f
 
 ## Atomic Red Team Test Reviewed
 
-T1547.001 has four relevant methods to demonstrate exploit of this 
+T1547.001 includes four relevant file-write tests. I ran Tests 1 and 4 — the two structurally distinct types. Tests 2 (VBS) and 3 (BAT) are identical in pattern to Test 1 and produce the same telemetry.
 
-1.  **Suspicious jse file run from startup Folder**
-Copy-Item "$PathToAtomicsFolder\T1547.001\src\jsestartup.jse" "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\jsestartup.jse" <Requires admin or root>
-2. **Suspicious vbs file run from startup Folder** <Required admin or root>
-Copy-Item "$PathToAtomicsFolder\T1547.001\src\vbsstartup.vbs" "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\vbsstartup.vbs"
-3. **Suspicious bat file run from startup Folder** - <Requires admin or root>
-Copy-Item "$PathToAtomicsFolder\T1547.001\src\batstartup.bat" "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\batstartup.bat"
-4. **A .LNK file- Executable Shortcut Link to User Startup Folder (NonMalicious link to redirect to a malicious file location. Will auto run whatever its targeted at, works well as a .LNK is less suspicious than whatever they’re pointing at & the destination can be obfuscated in line.** - <Requires admin or root>
+**Test 1 — JSE file write to all-users Startup** *(requires admin)*
+```powershell
+Copy-Item "$PathToAtomicsFolder\T1547.001\src\jsestartup.jse" `
+  "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\jsestartup.jse"
+```
+
+**Test 2 — VBS file write to all-users Startup** *(requires admin)*
+```powershell
+Copy-Item "$PathToAtomicsFolder\T1547.001\src\vbsstartup.vbs" `
+  "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\vbsstartup.vbs"
+```
+
+**Test 3 — BAT file write to all-users Startup** *(requires admin)*
+```powershell
+Copy-Item "$PathToAtomicsFolder\T1547.001\src\batstartup.bat" `
+  "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\batstartup.bat"
+```
+
+**Test 4 — LNK shortcut write to per-user Startup** *(no elevation required)*
+```powershell
 $Target = "C:\Windows\System32\calc.exe"
 $ShortcutLocation = "$home\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\calc_exe.lnk"
+$WScriptShell = New-Object -ComObject WScript.Shell
+$Create = $WScriptShell.CreateShortcut($ShortcutLocation)
+$Create.TargetPath = $Target
+$Create.Save()
+```
 
-These four options cover the most common attack paths for this specific tactic, in conclusion they provide a solid baseline, and have provided insight into how to target the mechanism rather than entity (Certain file extensions combined with suspicious factors must be blocked automatically, whereas scoping the detection to specific file names, hostnames etc is easy for the attacker to circumnavigate so wasting effort.)
+These four tests cover the most common attack paths for this vector. Key takeaway: target the **mechanism** (file with an executable-capable extension landing in a Startup path) rather than specific filenames or hostnames, which are trivial for an attacker to vary. The extension + path combination is what matters.
+
 ---
 
 ## Potential Evasion Paths (noted for blind spots section)
