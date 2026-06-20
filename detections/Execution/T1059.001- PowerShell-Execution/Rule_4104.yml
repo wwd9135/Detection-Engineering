@@ -1,0 +1,35 @@
+# This rule will tailor to Windows Event id 4104 log source.
+title: PowerShell Script Block Logging via windows Event ID 4104
+id: 2b3c4d5e-6f7g-8h9i-0j1k-2l3m4n5o6p7q
+status: Experimental
+description: |
+  Detects PowerShell script block logging events via Windows Event ID 4104.
+  Adversaries commonly use PowerShell for executing scripts and commands.
+  Mainly built for revealing decoded values the attacker tried to obsfucate.
+  Also centred around in memory based commands ie. IEX/ Invoke/ scriptBlock.
+  
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+author: William Richardson
+date: 2026-06-20
+modified: 2026-06-21
+tags:
+  - attack.execution
+  - attack.t1059.001
+logsource:
+  product: windows
+  category: powershell
+detection:
+  selection:
+    EventID: 4104
+
+# Plan for selection etc
+# 1. Need to double check windows powershell is the right product & cat for win events
+# 2. Filtering to that event is fine if that syntax checks
+# 3. Centre the actual selection criteria around in memory & encoded attacks.
+
+falsepositives:
+  - Legitimate PowerShell scripts executed by administrators or automated tasks
+  - Security software or monitoring tools that utilize PowerShell for management
+  - Developers running PowerShell scripts during development or testing
+level: high

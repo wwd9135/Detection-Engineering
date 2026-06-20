@@ -1,0 +1,37 @@
+# This rule will tailor to sysmon id 1 log source
+title: PowerShell Execution via Sysmon
+id: 1e2f3a4b-5c6d-7e8f-9a0b-1c2d3e4f5g6h
+status: Experimental
+description: |
+  Detects PowerShell execution events via Sysmon Event ID 1 (Process Creation).
+  Adversaries commonly use PowerShell for executing scripts and commands, which
+  can be indicative of malicious activity.
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+
+author: William Richardson
+date: 2026-06-20
+modified: 2026-06-21
+tags:
+  - attack.execution
+  - attack.t1059.001
+logsource:
+  product: windows
+  category: process_creation
+detection: 
+  selection:
+    Image|endswith: '\powershell.exe'
+  condition: selection
+
+# Plan for selection etc
+# 1. Selection conditions will be split down into 3 categories
+# These 3 appear within sysmon event id 1 & are related to downloading specifically
+# For an encoded command we cant read flag as suspicious and 4104 will check whats up
+# In the KQL rule to come we will correlate sys 1 & 4104 to make a robust catch for any encoded commands etc.
+# Selection needs to be an event id tbh, find a way to get one in.
+
+falsepositives:
+  - Legitimate PowerShell scripts executed by administrators or automated tasks
+  - Security software or monitoring tools that utilize PowerShell for management
+  - Developers running PowerShell scripts during development or testing
+level: high
