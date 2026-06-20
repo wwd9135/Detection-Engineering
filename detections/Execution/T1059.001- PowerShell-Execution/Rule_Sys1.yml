@@ -1,37 +1,172 @@
-# This rule will tailor to sysmon id 1 log source
-title: PowerShell Execution via Sysmon
-id: 1e2f3a4b-5c6d-7e8f-9a0b-1c2d3e4f5g6h
-status: Experimental
+# Two-tier severity: Medium (susp parent + 1 indicator),
+# High (susp parent + 2 indicators OR memory+evasion OR fetch+memory cradle)
+
+title: PowerShell Suspicious Execution - Medium Confidence
+id: 7d3f1a92-8c4b-4e6a-9f2d-1b5c8e0a4f63
+status: experimental
 description: |
-  Detects PowerShell execution events via Sysmon Event ID 1 (Process Creation).
-  Adversaries commonly use PowerShell for executing scripts and commands, which
-  can be indicative of malicious activity.
+  Detects PowerShell spawned from a suspicious parent process with at least one
+  additional behavioral indicator (download, evasion, or in-memory execution primitive).
+  Adversaries commonly use PowerShell for executing scripts and commands.
+  Medium confidence: one supporting indicator present alongside a suspicious parent.
 references:
   - https://attack.mitre.org/techniques/T1059/001/
-
 author: William Richardson
 date: 2026-06-20
-modified: 2026-06-21
+modified: 2026-06-20
 tags:
   - attack.execution
   - attack.t1059.001
 logsource:
   product: windows
   category: process_creation
-detection: 
+detection:
   selection:
-    Image|endswith: '\powershell.exe'
-  condition: selection
-
-# Plan for selection etc
-# 1. Selection conditions will be split down into 3 categories
-# These 3 appear within sysmon event id 1 & are related to downloading specifically
-# For an encoded command we cant read flag as suspicious and 4104 will check whats up
-# In the KQL rule to come we will correlate sys 1 & 4104 to make a robust catch for any encoded commands etc.
-# Selection needs to be an event id tbh, find a way to get one in.
-
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+  susp_parent:
+    ParentImage|endswith:
+      - '\wmiprvse.exe'
+      - '\winword.exe'
+      - '\excel.exe'
+      - '\powerpnt.exe'
+      - '\outlook.exe'
+      - '\mspub.exe'
+      - '\wscript.exe'
+      - '\cscript.exe'
+      - '\mshta.exe'
+      - '\regsvr32.exe'
+      - '\rundll32.exe'
+      - '\w3wp.exe'
+      - '\sqlservr.exe'
+  indicator_fetch:
+    CommandLine|contains:
+      - 'Net.WebClient'
+      - '.DownloadString'
+      - '.DownloadFile'
+      - '.DownloadData'
+      - 'Invoke-WebRequest'
+      - 'Invoke-RestMethod'
+      - 'iwr'
+      - 'irm'
+      - 'Start-BitsTransfer'
+      - 'Net.Http.HttpClient'
+      - '[Net.WebRequest]::Create'
+      - 'Msxml2.XMLHTTP'
+      - 'WinHttp.WinHttpRequest'
+  indicator_evasion:
+    CommandLine|windash|contains:
+      - '-EncodedCommand'
+      - '-enc'
+      - '-ec'
+      - '-WindowStyle Hidden'
+      - '-w hidden'
+      - '-ExecutionPolicy Bypass'
+      - '-ep bypass'
+      - '-exec bypass'
+      - '-NoProfile'
+      - '-nop'
+      - '-NonInteractive'
+      - '-noni'
+      - 'FromBase64String'
+  indicator_memory:
+    CommandLine|contains:
+      - 'IEX'
+      - 'Invoke-Expression'
+      - '[ScriptBlock]::Create'
+  condition: selection and susp_parent and 1 of indicator_*
 falsepositives:
   - Legitimate PowerShell scripts executed by administrators or automated tasks
-  - Security software or monitoring tools that utilize PowerShell for management
+  - Security software or monitoring tools that utilise PowerShell for management
+  - Developers running PowerShell scripts during development or testing
+level: medium
+
+---
+
+title: PowerShell Suspicious Execution - High Confidence
+id: 2a9e6c14-3f7b-4d81-b0e5-9c1a7f3e2d48
+status: experimental
+description: |
+  Detects PowerShell with high-confidence indicators of malicious execution.
+  Fires when any of: a suspicious parent is present alongside two or more behavioral
+  indicators; in-memory execution and evasion appear together; or a fetch primitive is
+  fused with in-memory execution (the classic download cradle). The latter two combinations
+  are high-signal regardless of parent.
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+author: William Richardson
+date: 2026-06-20
+modified: 2026-06-20
+tags:
+  - attack.execution
+  - attack.t1059.001
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+  susp_parent:
+    ParentImage|endswith:
+      - '\wmiprvse.exe'
+      - '\winword.exe'
+      - '\excel.exe'
+      - '\powerpnt.exe'
+      - '\outlook.exe'
+      - '\mspub.exe'
+      - '\wscript.exe'
+      - '\cscript.exe'
+      - '\mshta.exe'
+      - '\regsvr32.exe'
+      - '\rundll32.exe'
+      - '\w3wp.exe'
+      - '\sqlservr.exe'
+  indicator_fetch:
+    CommandLine|contains:
+      - 'Net.WebClient'
+      - '.DownloadString'
+      - '.DownloadFile'
+      - '.DownloadData'
+      - 'Invoke-WebRequest'
+      - 'Invoke-RestMethod'
+      - 'iwr'
+      - 'irm'
+      - 'Start-BitsTransfer'
+      - 'Net.Http.HttpClient'
+      - '[Net.WebRequest]::Create'
+      - 'Msxml2.XMLHTTP'
+      - 'WinHttp.WinHttpRequest'
+  indicator_evasion:
+    CommandLine|windash|contains:
+      - '-EncodedCommand'
+      - '-enc'
+      - '-ec'
+      - '-WindowStyle Hidden'
+      - '-w hidden'
+      - '-ExecutionPolicy Bypass'
+      - '-ep bypass'
+      - '-exec bypass'
+      - '-NoProfile'
+      - '-nop'
+      - '-NonInteractive'
+      - '-noni'
+      - 'FromBase64String'
+  indicator_memory:
+    CommandLine|contains:
+      - 'IEX'
+      - 'Invoke-Expression'
+      - '[ScriptBlock]::Create'
+  # Fires on: susp parent + 2 indicators, OR memory+evasion, OR fetch+memory (fused cradle) - last two parent-agnostic
+  condition: selection and (
+      (susp_parent and 2 of indicator_*) or
+      (indicator_memory and indicator_evasion) or
+      (indicator_fetch and indicator_memory)
+    )
+falsepositives:
+  - Legitimate PowerShell scripts executed by administrators or automated tasks
+  - Security software or monitoring tools that utilise PowerShell for management
   - Developers running PowerShell scripts during development or testing
 level: high
