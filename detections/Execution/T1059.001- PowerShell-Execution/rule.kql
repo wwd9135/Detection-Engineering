@@ -32,116 +32,70 @@
 // - Legitimate admin scripts using IEX/Invoke-WebRequest will match
 // - Security tooling (PSRemoting, SCCM, Defender) may trigger indicator_memory
 // - Tune by excluding known-safe HostApplication paths in your environment
-
+let DownloadCradleOne = dynamic[[
+    "IEX"                   ,
+    "Invoke-Expression"     ,
+    "Invoke-Command"        ,
+    "Invoke-ScriptBlock"    ,
+    "Invoke-Item"           ,
+    "[ScriptBlock]::Create"
+]]
+let DownloadCradleTwo = dynamic[[
+   "Net.WebClient"         ,
+    ".DownloadString"       ,
+    ".DownloadFile"         ,
+    ".DownloadData"         ,
+    "Invoke-WebRequest"     ,
+    "Invoke-RestMethod"     ,
+    "iwr"                   ,
+    "irm"                   ,
+    "Start-BitsTransfer"    ,
+    "Net.Http.HttpClient"   ,
+    "[Net.WebRequest]::Create" ,
+    "Msxml2.XMLHTTP"        ,
+    "WinHttp.WinHttpRequest"
+]]
+let obfuscation_Evasion = dynamic[[
+    "-EncodedCommand"       ,
+    "-enc"                  ,
+    "-ec"                   ,
+    "-WindowStyle Hidden"   ,
+    "-w hidden"             ,
+    "-ExecutionPolicy Bypass" ,
+    "-ep bypass"            ,
+    "-exec bypass"          ,
+    "-NoProfile"            ,
+    "-nop"                  ,
+    "-NonInteractive"       ,
+    "-noni"                 ,
+    "FromBase64String"
+]]
+let Susp_Parent = dynamic [[
+    "\winword.exe"         
+    "\excel.exe"           
+    "\powerpnt.exe"        
+    "\outlook.exe"         
+    "\mspub.exe"           
+    "\wscript.exe"         
+    "\cscript.exe"         
+    "\mshta.exe"           
+    "\regsvr32.exe"        
+    "\rundll32.exe"        
+    "\w3wp.exe"            
+    "\sqlservr.exe"
+    ]]
+# Todo:
+# 1. Find an efficient way to match the above dynamic lists to the below conditions
+# 2. Tied onto this is building selection criteria, eg. which combinations are needed to fire an alert
+# 3. Full review of logic to ensure robustness, get ai to test syntax.
 Event
 | where EventID == 4104
 | extend d = parse_xml(EventData).DataItem.EventData
 | extend ScriptBlockText = tostring(d.Data[1]["#text"])
 | extend HostApplication  = tostring(d.Data[2]["#text"])
 | where
-    // Arm 1 — download cradle fused with in-memory execution
-    (
-        (
-            ScriptBlockText contains "Net.WebClient"         or
-            ScriptBlockText contains ".DownloadString"       or
-            ScriptBlockText contains ".DownloadFile"         or
-            ScriptBlockText contains ".DownloadData"         or
-            ScriptBlockText contains "Invoke-WebRequest"     or
-            ScriptBlockText contains "Invoke-RestMethod"     or
-            ScriptBlockText contains "iwr"                   or
-            ScriptBlockText contains "irm"                   or
-            ScriptBlockText contains "Start-BitsTransfer"    or
-            ScriptBlockText contains "Net.Http.HttpClient"   or
-            ScriptBlockText contains "[Net.WebRequest]::Create" or
-            ScriptBlockText contains "Msxml2.XMLHTTP"        or
-            ScriptBlockText contains "WinHttp.WinHttpRequest"
-        )
-        and
-        (
-            ScriptBlockText contains "IEX"                   or
-            ScriptBlockText contains "Invoke-Expression"     or
-            ScriptBlockText contains "Invoke-Command"        or
-            ScriptBlockText contains "Invoke-ScriptBlock"    or
-            ScriptBlockText contains "Invoke-Item"           or
-            ScriptBlockText contains "[ScriptBlock]::Create"
-        )
-    )
-    or
-    // Arm 2 — in-memory execution + obfuscation/evasion flags
-    (
-        (
-            ScriptBlockText contains "IEX"                   or
-            ScriptBlockText contains "Invoke-Expression"     or
-            ScriptBlockText contains "Invoke-Command"        or
-            ScriptBlockText contains "Invoke-ScriptBlock"    or
-            ScriptBlockText contains "Invoke-Item"           or
-            ScriptBlockText contains "[ScriptBlock]::Create"
-        )
-        and
-        (
-            ScriptBlockText contains "-EncodedCommand"       or
-            ScriptBlockText contains "-enc"                  or
-            ScriptBlockText contains "-ec"                   or
-            ScriptBlockText contains "-WindowStyle Hidden"   or
-            ScriptBlockText contains "-w hidden"             or
-            ScriptBlockText contains "-ExecutionPolicy Bypass" or
-            ScriptBlockText contains "-ep bypass"            or
-            ScriptBlockText contains "-exec bypass"          or
-            ScriptBlockText contains "-NoProfile"            or
-            ScriptBlockText contains "-nop"                  or
-            ScriptBlockText contains "-NonInteractive"       or
-            ScriptBlockText contains "-noni"                 or
-            ScriptBlockText contains "FromBase64String"
-        )
-    )
-    or
-    // Arm 3 — suspicious parent driving download + obfuscation (LOLBin chain)
-    (
-        (
-            HostApplication endswith @"\wmiprvse.exe"        or
-            HostApplication endswith @"\winword.exe"         or
-            HostApplication endswith @"\excel.exe"           or
-            HostApplication endswith @"\powerpnt.exe"        or
-            HostApplication endswith @"\outlook.exe"         or
-            HostApplication endswith @"\mspub.exe"           or
-            HostApplication endswith @"\wscript.exe"         or
-            HostApplication endswith @"\cscript.exe"         or
-            HostApplication endswith @"\mshta.exe"           or
-            HostApplication endswith @"\regsvr32.exe"        or
-            HostApplication endswith @"\rundll32.exe"        or
-            HostApplication endswith @"\w3wp.exe"            or
-            HostApplication endswith @"\sqlservr.exe"
-        )
-        and
-        (
-            ScriptBlockText contains "Net.WebClient"         or
-            ScriptBlockText contains ".DownloadString"       or
-            ScriptBlockText contains ".DownloadFile"         or
-            ScriptBlockText contains ".DownloadData"         or
-            ScriptBlockText contains "Invoke-WebRequest"     or
-            ScriptBlockText contains "Invoke-RestMethod"     or
-            ScriptBlockText contains "iwr"                   or
-            ScriptBlockText contains "irm"                   or
-            ScriptBlockText contains "Start-BitsTransfer"    or
-            ScriptBlockText contains "Net.Http.HttpClient"   or
-            ScriptBlockText contains "[Net.WebRequest]::Create" or
-            ScriptBlockText contains "Msxml2.XMLHTTP"        or
-            ScriptBlockText contains "WinHttp.WinHttpRequest"
-        )
-        and
-        (
-            ScriptBlockText contains "-EncodedCommand"       or
-            ScriptBlockText contains "-enc"                  or
-            ScriptBlockText contains "-ec"                   or
-            ScriptBlockText contains "-WindowStyle Hidden"   or
-            ScriptBlockText contains "-w hidden"             or
-            ScriptBlockText contains "-ExecutionPolicy Bypass" or
-            ScriptBlockText contains "-ep bypass"            or
-            ScriptBlockText contains "-exec bypass"          or
-            ScriptBlockText contains "-NoProfile"            or
-            ScriptBlockText contains "-nop"                  or
-            ScriptBlockText contains "-NonInteractive"       or
-            ScriptBlockText contains "-noni"                 or
-            ScriptBlockText contains "FromBase64String"
-        )
-    )
+| where ScriptBlock like (DownloadCradleOne and DownloadCradleTwo)
+| where ScriptBlockText contains obfuscation_Evasion   
+| extend FileExt = extract(@"(\.[^.\\]+)$", 1, tolower(HostApplication))
+| having FileExt in (Susp_Parent)
+

@@ -1,0 +1,14 @@
+ScriptBlockText contains "-EncodedCommand"       or
+            ScriptBlockText contains "-enc"                  or
+            ScriptBlockText contains "-ec"                   or
+            ScriptBlockText contains "-WindowStyle Hidden"   or
+            ScriptBlockText contains "-w hidden"             or
+            ScriptBlockText contains "-ExecutionPolicy Bypass" or
+            ScriptBlockText contains "-ep bypass"            or
+            ScriptBlockText contains "-exec bypass"          or
+            ScriptBlockText contains "-NoProfile"            or
+            ScriptBlockText contains "-nop"                  or
+            ScriptBlockText contains "-NonInteractive"       or
+            ScriptBlockText contains "-noni"                 or
+            ScriptBlockText contains "FromBase64String"
+       
