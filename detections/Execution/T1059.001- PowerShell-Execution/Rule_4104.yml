@@ -22,12 +22,6 @@ logsource:
 detection:
   selection:
     EventID: 4104
-
-  ScriptBlockText -> full code ran
-  Path- Path script block ran from, empty if in memory (IEX etc)
-  MessageNumber/ MessageTotal- Flags if a message is split across multiple events, 
-  can be used to reassemble the full script block.
-  HostApplication- Shows parent that launched the PS block.
   Filter_parent:
     HostApplication|endswith:
       - '\wmiprvse.exe'
