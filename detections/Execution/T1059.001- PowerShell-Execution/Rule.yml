@@ -7,7 +7,6 @@ description: |
   Built to reveal decoded content that attackers tried to obfuscate via -EncodedCommand
   or similar. EID 4104 logs the decoded ScriptBlockText, bypassing encoding evasion.
   Covers in-memory execution (IEX/Invoke/[ScriptBlock]::Create) and fetch-based staging.
-
 references:
   - https://attack.mitre.org/techniques/T1059/001/
 author: William Richardson
@@ -80,7 +79,6 @@ detection:
     (indicator_memory and indicator_evasion) or
     (indicator_fetch and indicator_memory)
     )
-
 falsepositives:
   - Legitimate PowerShell scripts executed by administrators or automated tasks
   - Security software or monitoring tools that utilize PowerShell for management
