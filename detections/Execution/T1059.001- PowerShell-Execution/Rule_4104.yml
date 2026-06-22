@@ -23,11 +23,52 @@ detection:
   selection:
     EventID: 4104
 
-# Plan for selection etc
-# 1. Need to double check windows powershell is the right product & cat for win events
-# 2. Filtering to that event is fine if that syntax checks
-# 3. Centre the actual selection criteria around in memory & encoded attacks.
+  ScriptBlockText -> full code ran
+  Path- Path script block ran from, empty if in memory (IEX etc)
+  MessageNumber/ MessageTotal- Flags if a message is split across multiple events, 
+  can be used to reassemble the full script block.
+  HostApplication- Shows parent that launched the PS block.
+  Filter_parent:
+    HostApplication|endswith:
+      - '\wmiprvse.exe'
+      - '\winword.exe'
+      - '\excel.exe'
+      - '\powerpnt.exe'
+      - '\outlook.exe'
+      - '\mspub.exe'
+      - '\wscript.exe'
+      - '\cscript.exe'
+      - '\mshta.exe'
+      - '\regsvr32.exe'
+      - '\rundll32.exe'
+      - '\w3wp.exe'
+      - '\sqlservr.exe'
+    Filter_indicator:
+      ScriptBlockText|contains:
+        - 'IEX'
+        - 'Invoke-Expression'
+        - 'Invoke-Command'
+        - 'Invoke-ScriptBlock'
+        - 'Invoke-Item'
+        - 'Invoke-WebRequest'
+        - 'Invoke-RestMethod'
+        - 'Start-BitsTransfer'
+        - 'Net.WebClient'
+        - '.DownloadString'
+        - '.DownloadFile'
+        - '.DownloadData'
+        - '[Net.WebRequest]::Create'
+        - 'Msxml2.XMLHTTP'
+        - 'WinHttp.WinHttpRequest'
+# Plan for selections etc:
+# 1.  Need to decide breadth, the above could work as a starting point, 
+# but may need to be expanded to include other indicators of evasion or in memory execution.
+# Only question I have is if it's worth filtering by path and making two rule:
+# 1. when path is empty (in memory execution)
+# 2. when path is not empty (script file execution). 
 
+# OR I could repeat same indicators from sys 1, just combinining the message blocks
+# & analysts can now see whats decoded more easi;yly so its a better detection than sys1 technically.
 falsepositives:
   - Legitimate PowerShell scripts executed by administrators or automated tasks
   - Security software or monitoring tools that utilize PowerShell for management
