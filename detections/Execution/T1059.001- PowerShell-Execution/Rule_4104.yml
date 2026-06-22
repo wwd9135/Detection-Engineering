@@ -1,17 +1,18 @@
-title: PowerShell Script Block Logging via windows Event ID 4104
-id: 2b3c4d5e-6f7g-8h9i-0j1k-2l3m4n5o6p7q
-status: Experimental
+title: PowerShell Script Block Logging via Windows Event ID 4104
+id: 2b3c4d5e-6f7a-8b9c-0d1e-2f3a4b5c6d7e
+status: experimental
 description: |
   Detects PowerShell script block logging events via Windows Event ID 4104.
   Adversaries commonly use PowerShell for executing scripts and commands.
-  Mainly built for revealing decoded values the attacker tried to obsfucate.
-  Also centred around in memory based commands ie. IEX/ Invoke/ scriptBlock.
-  
+  Built to reveal decoded content that attackers tried to obfuscate via -EncodedCommand
+  or similar. EID 4104 logs the decoded ScriptBlockText, bypassing encoding evasion.
+  Covers in-memory execution (IEX/Invoke/[ScriptBlock]::Create) and fetch-based staging.
+
 references:
   - https://attack.mitre.org/techniques/T1059/001/
 author: William Richardson
 date: 2026-06-20
-modified: 2026-06-21
+modified: 2026-06-22
 tags:
   - attack.execution
   - attack.t1059.001
@@ -51,26 +52,16 @@ detection:
       - '[Net.WebRequest]::Create'
       - 'Msxml2.XMLHTTP'
       - 'WinHttp.WinHttpRequest'
-    Filter_indicator:
-      ScriptBlockText|contains:
-        - 'IEX'
-        - 'Invoke-Expression'
-        - 'Invoke-Command'
-        - 'Invoke-ScriptBlock'
-        - 'Invoke-Item'
-        - 'Invoke-WebRequest'
-        - 'Invoke-RestMethod'
-        - 'Start-BitsTransfer'
-        - 'Net.WebClient'
-        - '.DownloadString'
-        - '.DownloadFile'
-        - '.DownloadData'
-        - '[Net.WebRequest]::Create'
-        - 'Msxml2.XMLHTTP'
-        - 'WinHttp.WinHttpRequest'
-        <claude to combine above two into one filter>
-    indicator_evasion:
-    ScriptBlockText|windash|contains:
+  indicator_memory:
+    ScriptBlockText|contains:
+      - 'IEX'
+      - 'Invoke-Expression'
+      - 'Invoke-Command'
+      - 'Invoke-ScriptBlock'
+      - 'Invoke-Item'
+      - '[ScriptBlock]::Create'
+  indicator_evasion:
+    ScriptBlockText|contains:
       - '-EncodedCommand'
       - '-enc'
       - '-ec'
@@ -84,11 +75,11 @@ detection:
       - '-NonInteractive'
       - '-noni'
       - 'FromBase64String'
-    condition: selection and Filter_parent or Filter_indicator
-# Plan for selections etc:
-# Only question I have is if it's worth filtering by path and making two rule:
-# 1. when path is empty (in memory execution)
-# 2. when path is not empty (script file execution). 
+  condition: selection and (
+    (susp_parent and 2 of indicator_*) or
+    (indicator_memory and indicator_evasion) or
+    (indicator_fetch and indicator_memory)
+    )
 
 falsepositives:
   - Legitimate PowerShell scripts executed by administrators or automated tasks
