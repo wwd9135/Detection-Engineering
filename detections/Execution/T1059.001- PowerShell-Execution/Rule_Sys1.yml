@@ -1,6 +1,3 @@
-# Two-tier severity: Medium (susp parent + 1 indicator),
-# High (susp parent + 2 indicators OR memory+evasion OR fetch+memory cradle)
-
 title: PowerShell Suspicious Execution - Medium Confidence
 id: 7d3f1a92-8c4b-4e6a-9f2d-1b5c8e0a4f63
 status: experimental
@@ -159,7 +156,6 @@ detection:
       - 'IEX'
       - 'Invoke-Expression'
       - '[ScriptBlock]::Create'
-  # Fires on: susp parent + 2 indicators, OR memory+evasion, OR fetch+memory (fused cradle) - last two parent-agnostic
   condition: selection and (
       (susp_parent and 2 of indicator_*) or
       (indicator_memory and indicator_evasion) or

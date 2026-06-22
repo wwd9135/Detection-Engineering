@@ -1,4 +1,3 @@
-# This rule will tailor to Windows Event id 4104 log source.
 title: PowerShell Script Block Logging via windows Event ID 4104
 id: 2b3c4d5e-6f7g-8h9i-0j1k-2l3m4n5o6p7q
 status: Experimental
@@ -22,7 +21,7 @@ logsource:
 detection:
   selection:
     EventID: 4104
-  Filter_parent:
+  susp_parent:
     HostApplication|endswith:
       - '\wmiprvse.exe'
       - '\winword.exe'
@@ -37,6 +36,21 @@ detection:
       - '\rundll32.exe'
       - '\w3wp.exe'
       - '\sqlservr.exe'
+  indicator_fetch:
+    ScriptBlockText|contains:
+      - 'Net.WebClient'
+      - '.DownloadString'
+      - '.DownloadFile'
+      - '.DownloadData'
+      - 'Invoke-WebRequest'
+      - 'Invoke-RestMethod'
+      - 'iwr'
+      - 'irm'
+      - 'Start-BitsTransfer'
+      - 'Net.Http.HttpClient'
+      - '[Net.WebRequest]::Create'
+      - 'Msxml2.XMLHTTP'
+      - 'WinHttp.WinHttpRequest'
     Filter_indicator:
       ScriptBlockText|contains:
         - 'IEX'
@@ -54,16 +68,28 @@ detection:
         - '[Net.WebRequest]::Create'
         - 'Msxml2.XMLHTTP'
         - 'WinHttp.WinHttpRequest'
+        <claude to combine above two into one filter>
+    indicator_evasion:
+    ScriptBlockText|windash|contains:
+      - '-EncodedCommand'
+      - '-enc'
+      - '-ec'
+      - '-WindowStyle Hidden'
+      - '-w hidden'
+      - '-ExecutionPolicy Bypass'
+      - '-ep bypass'
+      - '-exec bypass'
+      - '-NoProfile'
+      - '-nop'
+      - '-NonInteractive'
+      - '-noni'
+      - 'FromBase64String'
     condition: selection and Filter_parent or Filter_indicator
 # Plan for selections etc:
-# 1.  Need to decide breadth, the above could work as a starting point, 
-# but may need to be expanded to include other indicators of evasion or in memory execution.
 # Only question I have is if it's worth filtering by path and making two rule:
 # 1. when path is empty (in memory execution)
 # 2. when path is not empty (script file execution). 
 
-# OR I could repeat same indicators from sys 1, just combinining the message blocks
-# & analysts can now see whats decoded more easi;yly so its a better detection than sys1 technically.
 falsepositives:
   - Legitimate PowerShell scripts executed by administrators or automated tasks
   - Security software or monitoring tools that utilize PowerShell for management
