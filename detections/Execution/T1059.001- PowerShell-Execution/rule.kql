@@ -1,33 +1,147 @@
 // ============================================================
-// Detection: Windows Registry Run Key Persistence
-// Technique: T1547.001 — Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder
-// Tactic:    Persistence (TA0003)
-// Source:    Compiled from rule.yml via pySigma (microsoft_xdr pipeline), hand-reviewed
-// Table:     DeviceRegistryEvents (Microsoft Defender for Endpoint / Sentinel)
+// Detection: PowerShell Script Block Logging — High Confidence
+// Technique: T1059.001 — Command and Scripting Interpreter: PowerShell
+// Tactic:    Execution (TA0002)
+// Source:    Compiled from rule.yml via pySigma (kusto backend + windows_event_log pipeline)
+// Table:     Event (Microsoft Sentinel — PowerShell Operational log via AMA/MMA)
 // Author:    William Richardson
-// Date:      2026-06-14
+// Date:      2026-06-22
 // ============================================================
 //
 // HOW THIS QUERY WORKS
 // --------------------
-// DeviceRegistryEvents captures registry operations from the MDE sensor.
-// ActionType 'RegistryValueSet' maps to Sysmon Event ID 13.
-// We look for writes to the four standard Run/RunOnce key paths (HKCU and HKLM,
-// plus the 32-bit WOW6432Node equivalents) and then subtract known-good writers.
+// EID 4104 (Script Block Logging) captures the *decoded* ScriptBlockText even
+// when -EncodedCommand is used, giving visibility that CommandLine-based rules miss.
+// Three conditions fire this alert (any one is sufficient):
+//   1. Fetch + Memory:  download cradle (Net.WebClient etc.) fused with in-memory exec (IEX etc.)
+//   2. Memory + Evasion: in-memory exec alongside obfuscation flags (Base64, -enc, -nop etc.)
+//   3. Susp Parent + Fetch + Evasion: unusual parent (WMI/Office/script host) running
+//      a download alongside obfuscation — high-signal LOLBin chain
 //
-// FIELD REFERENCE
-// ---------------
-//   DeviceName            — hostname of the endpoint
-//   InitiatingProcessFileName — the process that made the registry write
-//   InitiatingProcessFolderPath — full path to that process's binary
-//   RegistryKey           — the full registry key path being written
-//   RegistryValueName     — the name of the value within the key
-//   RegistryValueData     — the data written (i.e. the payload path)
-//   Timestamp             — UTC time of the event
+// SENTINEL FIELD NOTE
+// -------------------
+// In the Sentinel Event table, ScriptBlockText and HostApplication are embedded
+// in the EventData XML column, not top-level fields. Add an extend step to parse:
+//   | extend d = parse_xml(EventData).DataItem.EventData
+//   | extend ScriptBlockText = tostring(d.Data[1]["#text"])
+//   | extend HostApplication = tostring(d.Data[2]["#text"])
+// Field indices vary by log collector — validate against a sample event in your env.
 //
 // FALSE POSITIVE NOTES
 // --------------------
-// Software installers (msiexec, per-app installers) frequently write run keys.
-// The filter below excludes msiexec; tune further based on your environment.
-// Do NOT add broad exclusions like "C:\Program Files\" — that path is writable
-// after installation and an adversary could place a payload there.
+// - Legitimate admin scripts using IEX/Invoke-WebRequest will match
+// - Security tooling (PSRemoting, SCCM, Defender) may trigger indicator_memory
+// - Tune by excluding known-safe HostApplication paths in your environment
+
+Event
+| where EventID == 4104
+| extend d = parse_xml(EventData).DataItem.EventData
+| extend ScriptBlockText = tostring(d.Data[1]["#text"])
+| extend HostApplication  = tostring(d.Data[2]["#text"])
+| where
+    // Arm 1 — download cradle fused with in-memory execution
+    (
+        (
+            ScriptBlockText contains "Net.WebClient"         or
+            ScriptBlockText contains ".DownloadString"       or
+            ScriptBlockText contains ".DownloadFile"         or
+            ScriptBlockText contains ".DownloadData"         or
+            ScriptBlockText contains "Invoke-WebRequest"     or
+            ScriptBlockText contains "Invoke-RestMethod"     or
+            ScriptBlockText contains "iwr"                   or
+            ScriptBlockText contains "irm"                   or
+            ScriptBlockText contains "Start-BitsTransfer"    or
+            ScriptBlockText contains "Net.Http.HttpClient"   or
+            ScriptBlockText contains "[Net.WebRequest]::Create" or
+            ScriptBlockText contains "Msxml2.XMLHTTP"        or
+            ScriptBlockText contains "WinHttp.WinHttpRequest"
+        )
+        and
+        (
+            ScriptBlockText contains "IEX"                   or
+            ScriptBlockText contains "Invoke-Expression"     or
+            ScriptBlockText contains "Invoke-Command"        or
+            ScriptBlockText contains "Invoke-ScriptBlock"    or
+            ScriptBlockText contains "Invoke-Item"           or
+            ScriptBlockText contains "[ScriptBlock]::Create"
+        )
+    )
+    or
+    // Arm 2 — in-memory execution + obfuscation/evasion flags
+    (
+        (
+            ScriptBlockText contains "IEX"                   or
+            ScriptBlockText contains "Invoke-Expression"     or
+            ScriptBlockText contains "Invoke-Command"        or
+            ScriptBlockText contains "Invoke-ScriptBlock"    or
+            ScriptBlockText contains "Invoke-Item"           or
+            ScriptBlockText contains "[ScriptBlock]::Create"
+        )
+        and
+        (
+            ScriptBlockText contains "-EncodedCommand"       or
+            ScriptBlockText contains "-enc"                  or
+            ScriptBlockText contains "-ec"                   or
+            ScriptBlockText contains "-WindowStyle Hidden"   or
+            ScriptBlockText contains "-w hidden"             or
+            ScriptBlockText contains "-ExecutionPolicy Bypass" or
+            ScriptBlockText contains "-ep bypass"            or
+            ScriptBlockText contains "-exec bypass"          or
+            ScriptBlockText contains "-NoProfile"            or
+            ScriptBlockText contains "-nop"                  or
+            ScriptBlockText contains "-NonInteractive"       or
+            ScriptBlockText contains "-noni"                 or
+            ScriptBlockText contains "FromBase64String"
+        )
+    )
+    or
+    // Arm 3 — suspicious parent driving download + obfuscation (LOLBin chain)
+    (
+        (
+            HostApplication endswith @"\wmiprvse.exe"        or
+            HostApplication endswith @"\winword.exe"         or
+            HostApplication endswith @"\excel.exe"           or
+            HostApplication endswith @"\powerpnt.exe"        or
+            HostApplication endswith @"\outlook.exe"         or
+            HostApplication endswith @"\mspub.exe"           or
+            HostApplication endswith @"\wscript.exe"         or
+            HostApplication endswith @"\cscript.exe"         or
+            HostApplication endswith @"\mshta.exe"           or
+            HostApplication endswith @"\regsvr32.exe"        or
+            HostApplication endswith @"\rundll32.exe"        or
+            HostApplication endswith @"\w3wp.exe"            or
+            HostApplication endswith @"\sqlservr.exe"
+        )
+        and
+        (
+            ScriptBlockText contains "Net.WebClient"         or
+            ScriptBlockText contains ".DownloadString"       or
+            ScriptBlockText contains ".DownloadFile"         or
+            ScriptBlockText contains ".DownloadData"         or
+            ScriptBlockText contains "Invoke-WebRequest"     or
+            ScriptBlockText contains "Invoke-RestMethod"     or
+            ScriptBlockText contains "iwr"                   or
+            ScriptBlockText contains "irm"                   or
+            ScriptBlockText contains "Start-BitsTransfer"    or
+            ScriptBlockText contains "Net.Http.HttpClient"   or
+            ScriptBlockText contains "[Net.WebRequest]::Create" or
+            ScriptBlockText contains "Msxml2.XMLHTTP"        or
+            ScriptBlockText contains "WinHttp.WinHttpRequest"
+        )
+        and
+        (
+            ScriptBlockText contains "-EncodedCommand"       or
+            ScriptBlockText contains "-enc"                  or
+            ScriptBlockText contains "-ec"                   or
+            ScriptBlockText contains "-WindowStyle Hidden"   or
+            ScriptBlockText contains "-w hidden"             or
+            ScriptBlockText contains "-ExecutionPolicy Bypass" or
+            ScriptBlockText contains "-ep bypass"            or
+            ScriptBlockText contains "-exec bypass"          or
+            ScriptBlockText contains "-NoProfile"            or
+            ScriptBlockText contains "-nop"                  or
+            ScriptBlockText contains "-NonInteractive"       or
+            ScriptBlockText contains "-noni"                 or
+            ScriptBlockText contains "FromBase64String"
+        )
+    )

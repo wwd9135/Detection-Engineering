@@ -34,6 +34,17 @@
       "metadata": [],
       "links": [],
       "showSubtechniques": false
+    },
+    {
+      "techniqueID": "T1059.001",
+      "tactic": "execution",
+      "score": 2,
+      "color": "#4caf50",
+      "comment": "Experimental — Sigma rule validated via Atomic Red Team T1059.001 Test 1 in home lab. See detections/execution/T1059.001-PowerShell-Execution/",
+      "enabled": true,
+      "metadata": [],
+      "links": [],
+      "showSubtechniques": false
     }
   ],
   "gradient": {

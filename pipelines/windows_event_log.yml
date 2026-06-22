@@ -1,0 +1,11 @@
+name: Windows Event Log (Sentinel Event table)
+priority: 10
+transformations:
+  - id: set_query_table_powershell
+    type: set_state
+    key: query_table
+    val: Event
+    rule_conditions:
+      - type: logsource
+        product: windows
+        category: powershell

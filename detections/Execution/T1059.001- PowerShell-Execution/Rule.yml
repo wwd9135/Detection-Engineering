@@ -1,4 +1,5 @@
 title: PowerShell Script Block Logging via Windows Event ID 4104
+priority: 6
 id: 2b3c4d5e-6f7a-8b9c-0d1e-2f3a4b5c6d7e
 status: experimental
 description: |
@@ -74,11 +75,7 @@ detection:
       - '-NonInteractive'
       - '-noni'
       - 'FromBase64String'
-  condition: selection and (
-    (susp_parent and 2 of indicator_*) or
-    (indicator_memory and indicator_evasion) or
-    (indicator_fetch and indicator_memory)
-    )
+  condition: selection and ((indicator_fetch and indicator_memory) or (indicator_memory and indicator_evasion) or (susp_parent and indicator_fetch and indicator_evasion))
 falsepositives:
   - Legitimate PowerShell scripts executed by administrators or automated tasks
   - Security software or monitoring tools that utilize PowerShell for management
