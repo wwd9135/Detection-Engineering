@@ -54,6 +54,7 @@ detection:
         - '[Net.WebRequest]::Create'
         - 'Msxml2.XMLHTTP'
         - 'WinHttp.WinHttpRequest'
+    condition: selection and Filter_parent or Filter_indicator
 # Plan for selections etc:
 # 1.  Need to decide breadth, the above could work as a starting point, 
 # but may need to be expanded to include other indicators of evasion or in memory execution.
