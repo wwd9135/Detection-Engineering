@@ -39,4 +39,4 @@ DeviceFileEvents
  | extend FileExt = extract(@"(\.[^.\\]+)$", 1, tolower(FolderPath))
  | having FileExt in (SuspiciousExtensions)
  | project TargetFilename, Image, ProcessId, UtcTime
- | order by UtcTime desc
+ | order by UtcTime desc      
