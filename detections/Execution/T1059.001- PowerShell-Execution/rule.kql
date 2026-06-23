@@ -1,101 +1,102 @@
 // ============================================================
-// Detection: PowerShell Script Block Logging — High Confidence
+// Detection: PowerShell Download Cradle via Script Block Logging (EID 4104)
 // Technique: T1059.001 — Command and Scripting Interpreter: PowerShell
 // Tactic:    Execution (TA0002)
-// Source:    Compiled from rule.yml via pySigma (kusto backend + windows_event_log pipeline)
-// Table:     Event (Microsoft Sentinel — PowerShell Operational log via AMA/MMA)
+// Table:     Event (Microsoft Sentinel — PowerShell/Operational log via AMA)
 // Author:    William Richardson
-// Date:      2026-06-22
+// Date:      2026-06-23
 // ============================================================
 //
-// HOW THIS QUERY WORKS
-// --------------------
-// EID 4104 (Script Block Logging) captures the *decoded* ScriptBlockText even
-// when -EncodedCommand is used, giving visibility that CommandLine-based rules miss.
-// Three conditions fire this alert (any one is sufficient):
-//   1. Fetch + Memory:  download cradle (Net.WebClient etc.) fused with in-memory exec (IEX etc.)
-//   2. Memory + Evasion: in-memory exec alongside obfuscation flags (Base64, -enc, -nop etc.)
-//   3. Susp Parent + Fetch + Evasion: unusual parent (WMI/Office/script host) running
-//      a download alongside obfuscation — high-signal LOLBin chain
+// SCOPE — what this rule can and cannot see
+// -----------------------------------------
+// 4104 logs the *decoded* ScriptBlockText, so it catches download cradles even
+// when -EncodedCommand hid them from the command line. It is a CONTENT log.
+// It does NOT carry the launching command-line flags (-enc, -nop, -w hidden) or
+// the parent process — those live on Sysmon EID 1. Parent + flag tiering is
+// handled by the EID 1 rule and (optionally) an EID1<->4104 join, NOT here.
+// This rule is deliberately narrowed to 4104-native CONTENT signals.
 //
-// SENTINEL FIELD NOTE
-// -------------------
-// In the Sentinel Event table, ScriptBlockText and HostApplication are embedded
-// in the EventData XML column, not top-level fields. Add an extend step to parse:
-//   | extend d = parse_xml(EventData).DataItem.EventData
-//   | extend ScriptBlockText = tostring(d.Data[1]["#text"])
-//   | extend HostApplication = tostring(d.Data[2]["#text"])
-// Field indices vary by log collector — validate against a sample event in your env.
+// FIRING LOGIC (per-row severity)
+// -------------------------------
+//   High   = fused cradle: a fetch primitive AND in-memory execution together
+//   Medium = any single content signal (fetch, memory, OR content-obfuscation)
+//   Informational rows are dropped.
+
+// FIELD PARSING NOTE — validate against a real event in your tenant
+// -----------------------------------------------------------------
+// 4104 EventData Data-node order (validated against a captured sample):
+//   [0]=MessageNumber [1]=MessageTotal [2]=ScriptBlockText [3]=ScriptBlockId [4]=Path
+// Position parsing is fragile if a collector reorders nodes — if so, switch to a
+// name-based parse. The wrapper path (DataItem.EventData.Data) also varies by
+// collector; confirm it against your own row before trusting it.
 //
-// FALSE POSITIVE NOTES
-// --------------------
-// - Legitimate admin scripts using IEX/Invoke-WebRequest will match
-// - Security tooling (PSRemoting, SCCM, Defender) may trigger indicator_memory
-// - Tune by excluding known-safe HostApplication paths in your environment
-let DownloadCradleOne = dynamic[[
-    "IEX"                   ,
-    "Invoke-Expression"     ,
-    "Invoke-Command"        ,
-    "Invoke-ScriptBlock"    ,
-    "Invoke-Item"           ,
-    "[ScriptBlock]::Create"
-]]
-let DownloadCradleTwo = dynamic[[
-   "Net.WebClient"         ,
-    ".DownloadString"       ,
-    ".DownloadFile"         ,
-    ".DownloadData"         ,
-    "Invoke-WebRequest"     ,
-    "Invoke-RestMethod"     ,
-    "iwr"                   ,
-    "irm"                   ,
-    "Start-BitsTransfer"    ,
-    "Net.Http.HttpClient"   ,
-    "[Net.WebRequest]::Create" ,
-    "Msxml2.XMLHTTP"        ,
-    "WinHttp.WinHttpRequest"
-]]
-let obfuscation_Evasion = dynamic[[
-    "-EncodedCommand"       ,
-    "-enc"                  ,
-    "-ec"                   ,
-    "-WindowStyle Hidden"   ,
-    "-w hidden"             ,
-    "-ExecutionPolicy Bypass" ,
-    "-ep bypass"            ,
-    "-exec bypass"          ,
-    "-NoProfile"            ,
-    "-nop"                  ,
-    "-NonInteractive"       ,
-    "-noni"                 ,
-    "FromBase64String"
-]]
-let Susp_Parent = dynamic [[
-    "\winword.exe"         
-    "\excel.exe"           
-    "\powerpnt.exe"        
-    "\outlook.exe"         
-    "\mspub.exe"           
-    "\wscript.exe"         
-    "\cscript.exe"         
-    "\mshta.exe"           
-    "\regsvr32.exe"        
-    "\rundll32.exe"        
-    "\w3wp.exe"            
-    "\sqlservr.exe"
-    ]]
-# Todo:
-# 1. Find an efficient way to match the above dynamic lists to the below conditions
-# 2. Tied onto this is building selection criteria, eg. which combinations are needed to fire an alert
-# 3. Full review of logic to ensure robustness, get ai to test syntax.
+// FALSE POSITIVES / TUNING
+// ------------------------
+// - Legit admin/automation using IEX or Invoke-WebRequest will match (esp. Medium).
+// - Security tooling (SCCM, Defender, PSRemoting) can trip the memory signal.
+// - [baseline tuning deferred] exclude known-good script paths / signed scripts
+//   per environment — not done here because there is no environment to baseline.
+// - Param-prefix evasion (-encod / -en resolve to -EncodedCommand, defeating a
+//   substring list) is a real gap, but it belongs to the EID 1 command-line rule
+//   where the flags actually appear. Handle it there with a regex, not here.
+//
+let rx_download = @"(?i)(Net\.WebClient|\.Download(String|File|Data)|Invoke-WebRequest|Invoke-RestMethod|\biwr\b|\birm\b|Start-BitsTransfer|Net\.Http\.HttpClient|Net\.WebRequest|Msxml2\.XMLHTTP|WinHttp\.WinHttpRequest)";
+let rx_memory   = @"(?i)(\bIEX\b|Invoke-Expression|\[ScriptBlock\]::Create)";
+let rx_obfusc   = @"(?i)(FromBase64String|Reflection\.Assembly|-bxor|\[char\[\]\])";
 Event
 | where EventID == 4104
-| extend d = parse_xml(EventData).DataItem.EventData
-| extend ScriptBlockText = tostring(d.Data[1]["#text"])
-| extend HostApplication  = tostring(d.Data[2]["#text"])
-| where
-| where ScriptBlock like (DownloadCradleOne and DownloadCradleTwo)
-| where ScriptBlockText contains obfuscation_Evasion   
-| extend FileExt = extract(@"(\.[^.\\]+)$", 1, tolower(HostApplication))
-| having FileExt in (Susp_Parent)
+// --- parse EventData (indices validated against a captured 4104 sample) ---
+| extend ed = parse_xml(EventData).DataItem.EventData.Data
+| extend ScriptBlockText = tostring(ed[2]["#text"]),
+         ScriptBlockId   = tostring(ed[3]["#text"]),
+         MessageNumber   = toint(ed[0]["#text"]),
+         MessageTotal    = toint(ed[1]["#text"])
+// --- content signals ---
+| extend hasDownload = ScriptBlockText matches regex rx_download,
+         hasMemory   = ScriptBlockText matches regex rx_memory,
+         hasObfusc   = ScriptBlockText matches regex rx_obfusc
+// --- per-row severity: numeric rank FIRST then label ---
+| extend SeverityRank = case(hasDownload and hasMemory, 3,                 // fused cradle  = High
+                             hasDownload or hasMemory or hasObfusc, 2,     // single signal = Medium
+                             1)                                            //               = Informational
+| extend Severity = case(SeverityRank == 3, "High",
+                         SeverityRank == 2, "Medium",
+                         "Informational")
+| where SeverityRank >= 2
+| project TimeGenerated, Computer, Severity, SeverityRank,
+          hasDownload, hasMemory, hasObfusc,
+          ScriptBlockText, ScriptBlockId, MessageNumber, MessageTotal, EventID
+| sort by TimeGenerated desc
 
+
+// ============================================================
+// OPTIONAL — collapse one execution's many blocks into ONE row
+// ============================================================
+// A single PowerShell run emits many script blocks (your payload + engine
+// internals like `prompt` / Set-StrictMode), each its own 4104 event. Without
+// grouping, one script can raise a dozen alerts. Group by host + PowerShell
+// PROCESS within a time window for one row per execution.
+//
+// IMPORTANT: aggregate severity on the NUMERIC rank via max(), then map back to a
+// label. Never max() the string — "Medium" sorts above "High" lexically and you
+// would silently down-rank every cradle.
+//
+// CAVEAT: needs a per-process key (the powershell.exe PID). The Sentinel Event
+// table does not guarantee a clean process-id column for 4104 — you may have to
+// parse System/Execution @ProcessID from the event XML, and whether it is even
+// collected is env-dependent. VALIDATE against a sample (as you did the EventData
+// order). If unavailable, fall back to `by Computer, bin(...)` — coarser, and may
+// merge unrelated runs.
+//
+// | extend HostProcessId = tostring(parse_xml(EventData).DataItem.System.Execution["@ProcessID"])  // VALIDATE path
+// | summarize StartTime  = min(TimeGenerated),
+//             Blocks     = make_set(ScriptBlockText, 50),
+//             BlockCount = dcount(ScriptBlockId),
+//             MaxRank    = max(SeverityRank)
+//           by Computer, HostProcessId, bin(TimeGenerated, 5m)
+// | extend Severity = case(MaxRank == 3, "High", MaxRank == 2, "Medium", "Informational")
+// | where MaxRank >= 2
+//
+// Simpler alternative to in-query grouping: set the analytics rule's event
+// grouping to "group all events into a single alert" and map a Host entity —
+// it dedupes at the incident level instead of the query level.
