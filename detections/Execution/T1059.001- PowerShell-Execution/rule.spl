@@ -31,22 +31,23 @@ index=winevents sourcetype=XmlWinEventLog source="*PowerShell/Operational" Event
 | eval hasMemory   = if(match(ScriptBlockText, "(?i)(\bIEX\b|Invoke-Expression|\[ScriptBlock\]::Create)"), 1, 0)
 | eval hasObfusc   = if(match(ScriptBlockText, "(?i)(FromBase64String|Reflection\.Assembly|-bxor|\[char\[\]\])"), 1, 0)
 
-``` --- per-row severity: NUMERIC rank first (so it can be aggregated), then label --- ```
-| eval SeverityRank = case(hasDownload=1 AND hasMemory=1, 3,                         
-                           hasDownload=1 OR hasMemory=1 OR hasObfusc=1, 2,          
-                           true(), 1)          
-| eval DetectionReason=case(
-      hasDownload=1 AND hasMemory=1,
-      "Download + in-memory execution",
-      hasObfusc=1,
-      "Obfuscated PowerShell",
-      true(),
-      "Suspicious PowerShell"
-)                                       
 | bin _time span=10m
-| stats min(_time) as StartTime, values(ScriptBlockText) as Blocks,
-        dc(ScriptBlockId) as BlockCount, max(SeverityRank) as MaxRank
+| stats min(_time) as StartTime,
+        values(ScriptBlockText) as Blocks,
+        dc(ScriptBlockId) as BlockCount,
+        max(hasDownload) as anyDownload,
+        max(hasMemory)   as anyMemory,
+        max(hasObfusc)   as anyObfusc
         by host, pid, _time
-| eval Severity = case(MaxRank=3, "High", MaxRank=2, "Medium", true(), "Informational")
-| where MaxRank >= 2
+| eval SeverityRank = case(anyDownload=1 AND anyMemory=1, 3,
+                           anyDownload=1 OR anyMemory=1 OR anyObfusc=1, 2,
+                           true(), 1)
+| eval DetectionReason = case(
+        anyDownload=1 AND anyMemory=1, "Download + in-memory execution (fused cradle)",
+        anyDownload=1,                 "Remote download capability",
+        anyMemory=1,                   "In-memory execution (IEX / ScriptBlock::Create)",
+        anyObfusc=1,                   "Obfuscated PowerShell",
+        true(),                        "Suspicious PowerShell")
+| eval Severity = case(SeverityRank=3, "High", SeverityRank=2, "Medium", true(), "Informational")
+| where SeverityRank >= 2
 | sort - StartTime

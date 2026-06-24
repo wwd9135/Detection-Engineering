@@ -232,25 +232,6 @@ the two-layer design + the correlation, not re-deriving a WebClient keyword matc
 
 ---
 
-## Atomic Red Team Tests
-
-Run each, capture EID 1 + 4104 telemetry, record whether each rule fires, then cleanup.
-
-| Test | Description | Rule A fires? | Rule B fires? | Notes |
-|---|---|---|---|---|
-| #6 | MsXml COM object (with prompt) | _[ ]_ | _[ ]_ | COM fetch primitive |
-| #7 | PowerShell XML requests | _[ ]_ | _[ ]_ | |
-| #8 | Invoke mshta.exe download | _[ ]_ | _[ ]_ | also exercises mshta parent |
-| #9 | Invoke-DownloadCradle | _[ ]_ | _[ ]_ | the canonical fused cradle |
-| #17 | PowerShell encoded commands | _[ ]_ | _[ ]_ | **key test for the EID1-blind / 4104-catches split** |
-| #18 | Invoke Known Malicious Cmdlets | _[ ]_ | _[ ]_ | broad cmdlet list — good coverage check; likely a *separate* detection |
-
-> #17 is the important one for proving the architecture: it should be **weak/encoded on Rule A** (flag present,
-> payload hidden) and **caught on Rule B** (decoded). If that holds, the two-layer design is validated empirically.
-> #18 probably belongs in its own malicious-cmdlet detection, but run it here as a coverage check.
-
----
-
 ## Potential Evasion Paths (→ Blind Spots section)
 
 1. **Parent image workarounds**

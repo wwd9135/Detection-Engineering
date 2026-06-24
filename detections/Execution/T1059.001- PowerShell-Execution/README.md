@@ -32,7 +32,7 @@ Two complementary rules cover the attack chain from opposite ends.
 
 **Rule A** (`sysmon.yml` → EID 1) monitors PowerShell and pwsh process-creation events and fires when a suspicious parent process (Office apps, script hosts, LOLBin proxies, server workers) is present alongside at least one behavioural indicator — a fetch primitive, evasion flag, or in-memory execution marker — visible on the command line. This is the **launch-context** rule: it fires even when `-EncodedCommand` hides the payload, because the flag itself is suspicious.
 
-**Rule B** (`rule.yml` + `rule.kql` / `rule.spl` → EID 4104) monitors PowerShell Script Block Logging events and fires on the **decoded script content**. Because the PowerShell engine must decode any base64 payload before it can run it, EID 4104 always sees the cleartext intent regardless of encoding. A severity tier is applied per execution: a fused download cradle (fetch primitive AND in-memory execution in the same block) is High; any single content signal is Medium.
+**Rule B** (`rule.yml` + `rule.kql` / `rule.spl` → EID 4104) This rule was developed into kql and splunk as it was more promising than rule A, monitors PowerShell Script Block Logging events and fires on the **decoded script content**. Because the PowerShell engine must decode any base64 payload before it can run it, EID 4104 always sees the cleartext intent regardless of encoding. A severity tier is applied per execution: a fused download cradle (fetch primitive AND in-memory execution in the same block) is High; any single content signal is Medium.
 
 Any cross-rule correlation (EID 1 + 4104 from the same host/process) is handled at the platform's correlation layer — either an explicit KQL join or Sentinel's native entity-based alert grouping — rather than inside either base rule.
 
@@ -132,9 +132,11 @@ The High rather than Critical rating reflects that Medium signals carry a meanin
 
 ## Validation
 
-See [validation.md](validation.md) for the full test record including synthetic log evidence.
+See [validation.md](validation.md) for the full test record.
 
-**Test used**: Atomic Red Team T1059.001 — Test _, _, _, _
+**Tests run**: Atomic Red Team T1059.001 — Test 6 (MsXml COM object + IEX), Test 7 (PowerShell XML requests)
+
+**Outcome**: Rule B fired on Test 6, correctly identifying in-memory execution (`IEX`) and alerting at Medium severity. Test 7 produced no alert — the XML-based fetch mechanism falls outside the current keyword list. The detection covers a narrow slice of the PowerShell execution surface and is evasable by any fetch primitive not in the matched list, or by splitting fetch and execution across separate script blocks. A V2 is planned to broaden COM/HTTP primitive coverage and correlate split blocks via `ScriptBlockId` chaining to recover the fused High-tier alert.
 
 ---
 

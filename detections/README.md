@@ -21,6 +21,7 @@ See [docs/detection-template.md](../docs/detection-template.md) for the ADS READ
 | Tactic | Technique ID | Sub-technique | Name | Severity | Status |
 |---|---|---|---|---|---|
 | Persistence | T1547 | .001 | [Registry Run Key Persistence](persistence/T1547.001-registry-run-keys/README.md) | High | Stable |
+| Persistence | T1547 | .001 | [Startup Folder Persistence](persistence/T1547.001-Startup-Folder-File-Creation/README.md) | High | Experimental |
 
 ---
 
