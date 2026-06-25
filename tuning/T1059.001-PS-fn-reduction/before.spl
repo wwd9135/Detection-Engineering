@@ -1,0 +1,53 @@
+```
+=============================================================
+Detection: PowerShell Download Cradle via Script Block Logging (EID 4104)
+Technique: T1059.001 - Command and Scripting Interpreter: PowerShell
+Tactic:    Execution (TA0002)
+Platform:  Splunk SPL. Counterpart to rule.kql (Sentinel) and rule.yml (Sigma base).
+Data:      XmlWinEventLog : Microsoft-Windows-PowerShell/Operational, EventCode 4104
+Author:    William Richardson   Date: 2026-06-23
+
+SCOPE: 4104 is a CONTENT log - it carries the DECODED ScriptBlockText. It does
+NOT carry the launch flags (-enc / -nop / -w hidden) or the parent process; those
+live on Sysmon EID 1. This rule is the 4104-native content half only.
+
+FIRING:  High   = fetch AND memory (the fused cradle)
+         Medium = any single content signal (fetch, memory, or content-obfuscation)
+Medium is deliberately permissive for a lab with no environment baseline.
+
+REGEX ESCAPING: if the match() calls return nothing, your Splunk version wants
+doubled backslashes - replace \. with \\. , \b with \\b , \[ with \\[ etc.
+This is the #1 "why isn't it firing" gotcha in SPL match().
+
+Comment syntax (triple-backtick) needs Splunk 8.1+. Strip comments if older.
+=============================================================
+```
+index=winevents sourcetype=XmlWinEventLog source="*PowerShell/Operational" EventCode=4104
+``` normalise the process-id field name (TA may call it ProcessID or Execution_ProcessID) ```
+| eval pid = coalesce(ProcessID, Execution_ProcessID)
+
+``` --- three content signals as 1/0 flags (regex, not wildcard: handles . [ ] :: and \b aliases) --- ```
+| eval hasDownload = if(match(ScriptBlockText, "(?i)(Net\.WebClient|\.Download(String|File|Data)|Invoke-WebRequest|Invoke-RestMethod|\biwr\b|\birm\b|Start-BitsTransfer|Net\.Http\.HttpClient|Net\.WebRequest|Msxml2\.XMLHTTP|WinHttp\.WinHttpRequest)"), 1, 0)
+| eval hasMemory   = if(match(ScriptBlockText, "(?i)(\bIEX\b|Invoke-Expression|\[ScriptBlock\]::Create)"), 1, 0)
+| eval hasObfusc   = if(match(ScriptBlockText, "(?i)(FromBase64String|Reflection\.Assembly|-bxor|\[char\[\]\])"), 1, 0)
+
+| bin _time span=10m
+| stats min(_time) as StartTime,
+        values(ScriptBlockText) as Blocks,
+        dc(ScriptBlockId) as BlockCount,
+        max(hasDownload) as anyDownload,
+        max(hasMemory)   as anyMemory,
+        max(hasObfusc)   as anyObfusc
+        by host, pid, _time
+| eval SeverityRank = case(anyDownload=1 AND anyMemory=1, 3,
+                           anyDownload=1 OR anyMemory=1 OR anyObfusc=1, 2,
+                           true(), 1)
+| eval DetectionReason = case(
+        anyDownload=1 AND anyMemory=1, "Download + in-memory execution (fused cradle)",
+        anyDownload=1,                 "Remote download capability",
+        anyMemory=1,                   "In-memory execution (IEX / ScriptBlock::Create)",
+        anyObfusc=1,                   "Obfuscated PowerShell",
+        true(),                        "Suspicious PowerShell")
+| eval Severity = case(SeverityRank=3, "High", SeverityRank=2, "Medium", true(), "Informational")
+| where SeverityRank >= 2
+| sort - StartTime

