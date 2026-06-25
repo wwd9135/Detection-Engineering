@@ -24,7 +24,6 @@ Early-career security engineer building and validating detections in Microsoft S
 ├── docs/                   ← methodology, templates, conventions
 ├── detections/             ← Sigma rules + KQL, grouped by ATT&CK tactic
 ├── tuning/                 ← before/after tuning writeups
-├── emulation/              ← Atomic Red Team / manual test notes
 ├── coverage/               ← ATT&CK Navigator layer
 ├── lab/                    ← home-lab architecture notes
 ├── .github/workflows/      ← CI: sigma check + compile

@@ -1,5 +1,5 @@
 # PowerShell Execution — Download Cradle Detection
-
+## **NOTE**- Tuning has been completed against this detection - "Detection-Engineering\tuning\T1059.001-PS-FN-reduction"
 > **Technique**: T1059.001 — Command and Scripting Interpreter: PowerShell
 > **Tactic**: Execution (TA0002)
 > **Severity**: High
@@ -19,18 +19,14 @@ Detect adversaries using PowerShell to download and execute payloads, covering b
 |---|---|
 | ATT&CK Tactic | Execution (TA0002) |
 | ATT&CK Technique | Command and Scripting Interpreter: PowerShell (T1059.001) |
-| Data Source | Sysmon EID 1 (process creation) / Windows Event ID 4104 (script block logging) |
-| Log Category | `process_creation` (Rule A) · `ps_script` (Rule B) |
+| Data Source |  Windows Event ID 4104 (script block logging) |
+| Log Category |  `ps_script` (Rule B) |
 | Platform | Windows |
 | SIEM | Microsoft Sentinel (KQL) · Splunk (SPL) |
 
 ---
 
 ## Strategy Abstract
-
-Two complementary rules cover the attack chain from opposite ends.
-
-**Rule A** (`sysmon.yml` → EID 1) monitors PowerShell and pwsh process-creation events and fires when a suspicious parent process (Office apps, script hosts, LOLBin proxies, server workers) is present alongside at least one behavioural indicator — a fetch primitive, evasion flag, or in-memory execution marker — visible on the command line. This is the **launch-context** rule: it fires even when `-EncodedCommand` hides the payload, because the flag itself is suspicious.
 
 **Rule B** (`rule.yml` + `rule.kql` / `rule.spl` → EID 4104) This rule was developed into kql and splunk as it was more promising than rule A, monitors PowerShell Script Block Logging events and fires on the **decoded script content**. Because the PowerShell engine must decode any base64 payload before it can run it, EID 4104 always sees the cleartext intent regardless of encoding. A severity tier is applied per execution: a fused download cradle (fetch primitive AND in-memory execution in the same block) is High; any single content signal is Medium.
 

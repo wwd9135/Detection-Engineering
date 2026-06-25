@@ -252,12 +252,6 @@ the two-layer design + the correlation, not re-deriving a WebClient keyword matc
 
 > Confirm pySigma `microsoft_xdr` pipeline output before committing `rule.kql` (same diligence as WOW6432Node on rule 1).
 
-**Rule A — EID 1 → MDE `DeviceProcessEvents`:**
-- [ ] `Image` → `FolderPath` / `FileName` — _[verify]_
-- [ ] `CommandLine` → `ProcessCommandLine` — _[verify]_
-- [ ] `ParentImage` → `InitiatingProcessFolderPath` — _[verify]_
-- [ ] one-extra-level parent → `InitiatingProcessParentFileName` — _[verify]_
-
 **Rule B — EID 4104 → Sentinel / MDE:**
 - [ ] Sentinel ingesting `Microsoft-Windows-PowerShell/Operational` → which table/field carries `ScriptBlockText`? _[verify]_
 - [ ] MDE surfacing of script-block content → `DeviceEvents`? which `ActionType`/field? _[verify — I'm not certain of the exact mapping]_
@@ -272,14 +266,3 @@ the two-layer design + the correlation, not re-deriving a WebClient keyword matc
 - Remove PowerShell/CMD execution from non-IT/security users via RBAC — restricts shell usage for users who don't
   need it for BAU, and mitigates many shell-reliant TTPs at once.
 - Constrained Language Mode, AppLocker/WDAC, and `-version 2` blocking (to close the 4104 downgrade bypass).
-
----
-
-## Open Questions
-
-- [ ] Does the explicit KQL join key on `DeviceId` + time window alone, or can I tie EID 1 ↔ 4104 more tightly
-      (ProcessId/ProcessGuid ↔ HostApplication)? Tighter key = fewer false correlations.
-- [ ] What's the benign 4104 volume in the lab baseline? (Need an observe period before setting Rule B's threshold.)
-- [ ] Should #18 (malicious cmdlets) be folded in as a signal here, or be its own detection? Lean separate.
-- [ ] How should `Start-BitsTransfer` be handled given it also maps to T1197 — tag both techniques?
-- [ ] Reassembly: how do I reliably stitch `MessageNumber`/`MessageTotal`-split blocks before matching in KQL?

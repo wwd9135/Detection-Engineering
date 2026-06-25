@@ -1,53 +1,97 @@
 ```
 =============================================================
-Detection: PowerShell Download Cradle via Script Block Logging (EID 4104)
-Technique: T1059.001 - Command and Scripting Interpreter: PowerShell
+Detection: PowerShell Download Cradle & COM/LOLBin Execution via Script Block Logging (EID 4104) **V2 post tuning**
+Technique: T1059.001 - Command and Scripting Interpreter: PowerShell (primary)
+Related:   T1218.007 (WindowsInstaller / Msiexec COM), T1105 (Ingress Tool Transfer)
 Tactic:    Execution (TA0002)
 Platform:  Splunk SPL. Counterpart to rule.kql (Sentinel) and rule.yml (Sigma base).
 Data:      XmlWinEventLog : Microsoft-Windows-PowerShell/Operational, EventCode 4104
-Author:    William Richardson   Date: 2026-06-23
+Author:    William Richardson   Date: 2026-06-25  (V2)
 
-SCOPE: 4104 is a CONTENT log - it carries the DECODED ScriptBlockText. It does
-NOT carry the launch flags (-enc / -nop / -w hidden) or the parent process; those
-live on Sysmon EID 1. This rule is the 4104-native content half only.
+SCOPE: 4104 carries the DECODED ScriptBlockText. It does NOT carry launch flags
+(-enc / -nop / -w hidden) or the parent process; those are Sysmon EID 1. This rule
+is the 4104-native CONTENT half only. V2 adds COM/LOLBin execution primitives that
+appear natively in PowerShell script blocks (WindowsInstaller COM MSI install,
+moniker binding, mshta launch). These survive -enc here, which the command-line
+Sigma rules for the same technique do not - that is this layer's edge.
 
-FIRING:  High   = fetch AND memory (the fused cradle)
-         Medium = any single content signal (fetch, memory, or content-obfuscation)
+FIRING (per execution, after grouping by host + process):
+  High   = fused cradle  (download AND in-memory exec)
+        OR remote alt-exec (COM/moniker/mshta AND a URL)
+  Medium = any single content or alt-exec signal
 Medium is deliberately permissive for a lab with no environment baseline.
 
-REGEX ESCAPING: if the match() calls return nothing, your Splunk version wants
-doubled backslashes - replace \. with \\. , \b with \\b , \[ with \\[ etc.
-This is the #1 "why isn't it firing" gotcha in SPL match().
+OUT OF SCOPE (deliberately): VBScript/JScript constructs like GetObject() live in
+wscript/mshta/cscript telemetry, NOT PowerShell 4104. The PS-native equivalent
+(BindToMoniker) IS covered below.
+
+ASSUMES Splunk_TA_windows auto-extracts ScriptBlockText / ScriptBlockId /
+ProcessID / MessageNumber. If ScriptBlockText is empty, the TA isn't extracting -
+add a rex fallback on _raw.
+
+REGEX ESCAPING: if a match() returns nothing, your Splunk version wants doubled
+backslashes - replace \. with \\. , \b with \\b , \( with \\( etc. #1 SPL gotcha.
 
 Comment syntax (triple-backtick) needs Splunk 8.1+. Strip comments if older.
 =============================================================
 ```
 index=winevents sourcetype=XmlWinEventLog source="*PowerShell/Operational" EventCode=4104
+
 ``` normalise the process-id field name (TA may call it ProcessID or Execution_ProcessID) ```
 | eval pid = coalesce(ProcessID, Execution_ProcessID)
 
-``` --- three content signals as 1/0 flags (regex, not wildcard: handles . [ ] :: and \b aliases) --- ```
+``` --- content signals as 1/0 flags (regex, not wildcard: handles . [ ] :: and \b aliases) --- ```
 | eval hasDownload = if(match(ScriptBlockText, "(?i)(Net\.WebClient|\.Download(String|File|Data)|Invoke-WebRequest|Invoke-RestMethod|\biwr\b|\birm\b|Start-BitsTransfer|Net\.Http\.HttpClient|Net\.WebRequest|Msxml2\.XMLHTTP|WinHttp\.WinHttpRequest)"), 1, 0)
 | eval hasMemory   = if(match(ScriptBlockText, "(?i)(\bIEX\b|Invoke-Expression|\[ScriptBlock\]::Create)"), 1, 0)
 | eval hasObfusc   = if(match(ScriptBlockText, "(?i)(FromBase64String|Reflection\.Assembly|-bxor|\[char\[\]\])"), 1, 0)
 
+``` V2 - COM / LOLBin execution primitives that appear natively in PS script blocks:
+    WindowsInstaller COM MSI install (T1218.007), moniker binding (the PS-native
+    equivalent of VBScript GetObject), and mshta launched from PS. NOTE BindToMoniker
+    alone has legit uses (e.g. attaching to a running Office doc) - that's why it only
+    reaches High when paired with a remote URL below, never on its own. ```
+| eval hasAltExec  = if(match(ScriptBlockText, "(?i)(WindowsInstaller\.Installer|\.InstallProduct\s*\(|BindToMoniker|\bmshta\b)"), 1, 0)
+
+``` V2 - remote-source indicator. Benign on its own; only meaningful paired with
+    hasAltExec (remote MSI / remote scriptlet = download-and-execute, maps to T1105). ```
+| eval hasRemote   = if(match(ScriptBlockText, "(?i)(https?://|ftp://)"), 1, 0)
+
+``` --- collapse one execution's many script blocks into ONE row (host + process) ---
+    aggregate each flag via max(): 1 if ANY block in the execution carried the signal.
+    This also catches a cradle whose fetch and run land in separate blocks of the same
+    execution. bin _time guards against PID reuse over long search windows. ```
 | bin _time span=10m
-| stats min(_time) as StartTime,
+| stats min(_time)              as StartTime,
         values(ScriptBlockText) as Blocks,
-        dc(ScriptBlockId) as BlockCount,
-        max(hasDownload) as anyDownload,
-        max(hasMemory)   as anyMemory,
-        max(hasObfusc)   as anyObfusc
+        dc(ScriptBlockId)       as BlockCount,
+        max(hasDownload)        as anyDownload,
+        max(hasMemory)          as anyMemory,
+        max(hasObfusc)          as anyObfusc,
+        max(hasAltExec)         as anyAltExec,
+        max(hasRemote)          as anyRemote
         by host, pid, _time
-| eval SeverityRank = case(anyDownload=1 AND anyMemory=1, 3,
-                           anyDownload=1 OR anyMemory=1 OR anyObfusc=1, 2,
-                           true(), 1)
+
+``` --- severity: numeric rank first (so it stays aggregatable), then label. High-first. --- ```
+| eval SeverityRank = case(
+        (anyDownload=1 AND anyMemory=1) OR (anyAltExec=1 AND anyRemote=1), 3,
+        anyDownload=1 OR anyMemory=1 OR anyObfusc=1 OR anyAltExec=1,        2,
+        true(), 1)
+
+``` --- analyst-facing reason (first match wins -> highest / most-specific first) --- ```
 | eval DetectionReason = case(
-        anyDownload=1 AND anyMemory=1, "Download + in-memory execution (fused cradle)",
-        anyDownload=1,                 "Remote download capability",
-        anyMemory=1,                   "In-memory execution (IEX / ScriptBlock::Create)",
-        anyObfusc=1,                   "Obfuscated PowerShell",
-        true(),                        "Suspicious PowerShell")
+        anyDownload=1 AND anyMemory=1,  "Download + in-memory execution (fused cradle)",
+        anyAltExec=1 AND anyRemote=1,   "Remote COM/LOLBin execution (WindowsInstaller / moniker / mshta + URL)",
+        anyDownload=1,                  "Remote download capability",
+        anyMemory=1,                    "In-memory execution (IEX / ScriptBlock::Create)",
+        anyAltExec=1,                   "Alternative execution primitive (COM installer / moniker / mshta)",
+        anyObfusc=1,                    "Obfuscated PowerShell content",
+        true(),                         "Suspicious PowerShell")
+
 | eval Severity = case(SeverityRank=3, "High", SeverityRank=2, "Medium", true(), "Informational")
 | where SeverityRank >= 2
+
+``` surface every flag so the analyst sees exactly what fired ```
+| table StartTime, host, pid, Severity, SeverityRank, DetectionReason,
+        anyDownload, anyMemory, anyObfusc, anyAltExec, anyRemote,
+        BlockCount, Blocks
 | sort - StartTime

@@ -23,7 +23,7 @@ Rule A (EID 1 / process creation) was deprioritised; all tests below evaluate **
 |---|---|---|---|---|
 | 6 | T1059.001-6 | MsXml COM object download + IEX | Yes | Alert fired: Medium — in-memory execution detected |
 | 7 | T1059.001-7 | PowerShell XML requests (`[xml]` type accelerator) | YES | XML fetch mechanism not in current keyword list |
-
+| 10| T1059.001-9 | Invoke-download cradle | Rule B fires | Yes | Alert fired: High, medium & informational throughout the different subscripts involved| 
 ---
 
 ## Test 6 — MsXml COM Object (PASS)
@@ -52,6 +52,13 @@ powershell.exe -exec bypass -noprofile "$comMsXml=New-Object -ComObject MsXml2.S
 **Why it fired**: The EID 4104 script block contained `IEX`, which matched the in-memory execution signal. The fetch via `MsXml2.ServerXmlHttp` was not itself matched (COM-based fetches are not in the current primitive list), but the `IEX` call on the response was sufficient to trigger the Medium tier.
 
 **Why not High**: A High alert requires a fetch primitive AND in-memory execution to appear together in the same block. Because the COM object fetch did not match any recognised fetch keyword, only the memory signal scored — resulting in Medium rather than High.
+
+---
+## Test 9 - PowerShell invoke download cradle test script
+**Command emulated* 
+Entire Invoke-DownloadCradle test script- https://github.com/mgreen27/mgreen27.github.io
+**Alert fired**: Yes - Severity **High/Medium** Download cradle & in memory execution (IEX)
+**Why it fired**: The EID 4104 block caught all of the download cradle syntax that was fired, raising multiple alerts (several scripts were ran) at the desired severities.
 
 ---
 
