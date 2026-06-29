@@ -32,4 +32,4 @@ The detections for osbfucation is currently limited, same for in memory techniqu
 Second to that using scriptlet moniker seems to slip through, a threat actor could poetntially run a java script/ JSE etc and it wouldnt be detected. The reason why I want to cover this in 4104 is it can be executed in memory completely & can be done without spawning procceses etc if need be, it could be done via PS script block i need to catch it.
 ## Risk of the Filter
 
-The accepted risk:
+The accepted risk: That the COM block check increases FP subtly, however I've worked around this by using conditions to only raise an alert if there is multiple filters triggered.
