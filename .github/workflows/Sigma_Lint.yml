@@ -13,7 +13,7 @@
 #                    as a compile-sanity check. Marked
 #                    continue-on-error so it won't block merges
 #                    while the pipeline is being refined.
-#
+#   3. Chainsaw test-detections - runs Chainsaw to test detections against sample data. Fails the build on error.
 # ============================================================
 
 # The 'name' key is what GitHub displays as the workflow title
@@ -189,3 +189,16 @@ jobs:
             --target kusto \
             --pipeline microsoft_xdr \
             detections/
+  test-detections:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Chainsaw
+        run: |   # check the releases page for the current asset name — these drift
+          curl -sL -o cs.tar.gz https://github.com/WithSecureLabs/chainsaw/releases/latest/download/chainsaw_x86_64-unknown-linux-gnu.tar.gz
+          tar xzf cs.tar.gz && sudo mv chainsaw*/chainsaw /usr/local/bin/
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install pytest
+      - run: pytest tests/ -v
