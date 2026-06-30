@@ -12,10 +12,10 @@
 - [x] Tighten hypothesis
 - [x] Write up existing research so far
 - [x] Fill in EID 4104 fields
+- [x] Run the Atomic tests and record results — see validation.md (Tests 6, 7, 9)
+- [x] Decide final tiering / correlation split — two base rules (sysmon.yml + rule.yml), correlation at platform layer
 - [ ] Review download-cradle prior art in the two relevant SigmaHQ folders (see *Existing Community Rules*)
-- [ ] Run the Atomic tests and record results (see *Atomic Red Team Tests*)
 - [ ] Complete field-mapping verification for both log sources
-- [ ] Decide final tiering / correlation split (base rules vs correlation layer)
 
 ---
 
@@ -47,8 +47,6 @@ Detect the **mechanism, not the entity**. This is the **Pyramid of Pain** (Bianc
 bottom — an attacker rotates them in seconds. Techniques (TTPs) sit at the top — changing *how* they operate is
 expensive. Rotating a C2 domain or renaming a payload is **indicator rotation**, not a zero-day; atomic indicators
 are brittle *because* they're trivially rotated. That's the argument for targeting the download *mechanism*.
-
-The reframe that kills the "infinite surface" worry:
 
 > The **attack surface** is infinite (endless URLs, payloads, exe names).
 > The **mechanism surface** is small and fixed — PowerShell only has a handful of ways to actually pull
@@ -185,7 +183,7 @@ strength and its limits.
 - `IEX (decoded string)` — the string handed to IEX becomes a **new** script block, also logged. Multi-layer
   obfuscation tends to **peel across successive 4104 events** as each layer invokes the next.
 
-**What it does NOT do — correction to my earlier note ("can't be obfuscated, every character is logged"):**
+**What it does NOT do:**
 4104 is **not** a deobfuscator. It logs what the engine compiles, not a cleaned/normalised version. Inline source
 obfuscation that resolves only at evaluation — string concat (`'Down'+'loadString'`), char-code arrays, backtick
 insertion (`` D`o`wnloadString ``) — is logged **literally as written**, and only becomes cleartext if the result
@@ -200,13 +198,6 @@ is beaten by `'Download'+'String'`. → put this in Blind Spots.
   body is obfuscated.
 - `MessageNumber` / `MessageTotal` — flags when one block is split across multiple log entries (reassemble before matching).
 
-**Assumptions / blind spots specific to 4104:**
-- [ ] Script Block Logging is **enabled** (`EnableScriptBlockLogging` via GPO/registry). Without it, 5.x still
-      auto-logs blocks it *heuristically* deems suspicious, but full coverage isn't guaranteed. → state as assumption.
-- [ ] **PowerShell v2 downgrade** (`powershell -version 2`) predates script block logging → emits **no** 4104.
-- [ ] **pwsh (PowerShell 7)** logs to a *different* channel (`PowerShellCore/Operational`) vs Windows PowerShell 5.1
-      (`Microsoft-Windows-PowerShell/Operational`). Sigma `category: ps_script` abstracts it, but the backend
-      pipeline must map both — verify in Field Mapping.
 
 ---
 
@@ -222,8 +213,6 @@ is beaten by `'Download'+'String'`. → put this in Blind Spots.
 | SigmaHQ `powershell_classic/posh_pc_download_via_webclient.yml` | Download via Net.WebClient | Scans WebClient downloads; common second-stage pull. Read for field usage on the 4104 side. |
 | SigmaHQ `process_creation/proc_creation_win_powershell_download_cradle_obfuscated.yml` | Obfuscated one-liners | Short, but the obfuscated-cradle concept is directly relevant. EID 1 side. |
 | SigmaHQ `powershell_script/posh_ps_remote_session_creation.yml` | Remote session creation | Adjacent (not download) — keep for reference only. |
-| _[FILL IN]_ | DLL download via `Invoke-WebRequest` | Confirm exact path/name; one of the key primitives. |
-| _[FILL IN: 2–3 more download-cradle rules from the two folders above]_ | | |
 
 **Takeaway so far:** community rules are mostly *one simple rule per primitive*. They're a **baseline, not a
 deliverable** — Sigma is a *distribution* format (portable, lowest-common-denominator, no env dependencies), so
@@ -245,17 +234,6 @@ the two-layer design + the correlation, not re-deriving a WebClient keyword matc
    *content*. The two are correlated in the platform for a holistic view.
 3. **4104 evasion** — v2 downgrade (no 4104 at all); inline source obfuscation not normalised by 4104
    (concat/charcode/backtick) — see 4104 notes.
-
----
-
-## Field Mapping Verification
-
-> Confirm pySigma `microsoft_xdr` pipeline output before committing `rule.kql` (same diligence as WOW6432Node on rule 1).
-
-**Rule B — EID 4104 → Sentinel / MDE:**
-- [ ] Sentinel ingesting `Microsoft-Windows-PowerShell/Operational` → which table/field carries `ScriptBlockText`? _[verify]_
-- [ ] MDE surfacing of script-block content → `DeviceEvents`? which `ActionType`/field? _[verify — I'm not certain of the exact mapping]_
-- [ ] Does `category: ps_script` map *both* PowerShell 5.1 and pwsh 7 channels? _[verify]_
 
 ---
 

