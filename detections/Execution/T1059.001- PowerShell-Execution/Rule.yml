@@ -79,6 +79,5 @@ detection:
 falsepositives:
   - Legitimate PowerShell scripts executed by administrators or automated tasks
   - Security software or monitoring tools that utilize PowerShell for management
-  - Developers running PowerShell scripts during development or testing
+  - Developers running PowerShell scripts during development or testings
 level: high
----
