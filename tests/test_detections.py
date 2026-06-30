@@ -19,7 +19,6 @@ Place this file at: tests/test_detections.py
 import json
 import pathlib
 import subprocess
-
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
