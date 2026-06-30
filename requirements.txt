@@ -41,6 +41,8 @@ pySigma-pipeline-sysmon>=1.0.0
 PyYAML>=6.0
 
 # ── Development / local use only (not required for CI) ───────────────────────
+pytest>=7.0
+
 # Uncomment if you want these locally:
 # rich        — prettier sigma-cli output in the terminal
 # ipython     — interactive KQL / YAML debugging
