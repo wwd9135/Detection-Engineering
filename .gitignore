@@ -84,7 +84,6 @@ desktop.ini
 # ── Log exports / raw telemetry ───────────────────────────────────────────────
 # Raw log exports should NOT be committed — only sanitised excerpts
 # go in validation.md or assets/. Block common export formats.
-*.evtx
 *.csv
 *.json.gz
 *.log

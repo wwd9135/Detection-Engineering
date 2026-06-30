@@ -1,0 +1,4 @@
+Import-Module ActiveDirectory
+Invoke-WebRequest -Uri 'https://intranet.corp.local/patch.msi' -OutFile 'C:\Temp\patch.msi'
+Invoke-Command -ComputerName SRV-FILE01 -ScriptBlock { Get-Service -Name Spooler }
+Start-Process powershell -ArgumentList '-ExecutionPolicy Bypass -NoProfile -File C:\Scripts\nightly.ps1'
