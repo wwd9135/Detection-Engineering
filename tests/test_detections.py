@@ -58,6 +58,22 @@ def discover():
 CASES = discover()
 
 
+def test_fixtures_present():
+    """Fail loudly if no fixtures were found, instead of a silent green build.
+
+    An empty CASES list makes the parametrized tests skip with id NOTSET, which
+    would otherwise pass CI while testing nothing. Most common cause: the .evtx
+    files aren't committed because .gitignore blocks *.evtx (add the exception
+    '!tests/fixtures/**/*.evtx') — and git won't commit the now-empty folders.
+    Check with: git ls-files tests/fixtures/
+    """
+    assert CASES, (
+        "No fixture folders found under tests/fixtures/ on this machine. "
+        "Either none are committed yet, or *.evtx files are blocked by "
+        ".gitignore. Run: git ls-files tests/fixtures/"
+    )
+
+
 def chainsaw_hits(rule: pathlib.Path, evtx: pathlib.Path) -> int:
     """Run ONE Sigma rule against ONE evtx file and return the match count.
 
