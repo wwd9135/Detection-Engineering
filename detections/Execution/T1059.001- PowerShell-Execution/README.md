@@ -28,7 +28,7 @@ Detect adversaries using PowerShell to download and execute payloads, covering b
 
 ## Strategy Abstract
 
-**Rule B** (`rule.yml` + `rule.kql` / `rule.spl` → EID 4104) This rule was developed into kql and splunk as it was more promising than rule A, monitors PowerShell Script Block Logging events and fires on the **decoded script content**. Because the PowerShell engine must decode any base64 payload before it can run it, EID 4104 always sees the cleartext intent regardless of encoding. A severity tier is applied per execution: a fused download cradle (fetch primitive AND in-memory execution in the same block) is High; any single content signal is Medium.
+**Rule B** (`rule.yml` + `rule.kql` / `rule.spl` → EID 4104) monitors PowerShell Script Block Logging events and fires on **decoded script content**. Because the PS engine must decode any base64 payload before running it, EID 4104 always exposes cleartext intent regardless of encoding. A severity tier is applied per execution: a fused download cradle (fetch primitive AND in-memory execution) is High; any single content signal is Medium. The Splunk rule (V2, post-tuning) extends this with two additional signals — COM/LOLBin alt-exec primitives (`BindToMoniker`, `WindowsInstaller.Installer`, `mshta`) and URL presence — creating a second High path for remote COM-based download-and-execute. See the [tuning record](../../tuning/T1059.001-PS-fn-reduction/README.md) for the V2 rationale. The KQL rule covers the core three content signals.
 
 Any cross-rule correlation (EID 1 + 4104 from the same host/process) is handled at the platform's correlation layer — either an explicit KQL join or Sentinel's native entity-based alert grouping — rather than inside either base rule.
 
@@ -130,9 +130,17 @@ The High rather than Critical rating reflects that Medium signals carry a meanin
 
 See [validation.md](validation.md) for the full test record.
 
-**Tests run**: Atomic Red Team T1059.001 — Test 6 (MsXml COM object + IEX), Test 7 (PowerShell XML requests)
+**Tests run**: Atomic Red Team T1059.001 — Test 6 (MsXml COM object + IEX), Test 7 (PowerShell XML + IEX), Test 9 (Invoke-DownloadCradle script suite)
 
-**Outcome**: Rule B fired on Test 6, correctly identifying in-memory execution (`IEX`) and alerting at Medium severity. Test 7 produced no alert — the XML-based fetch mechanism falls outside the current keyword list. The detection covers a narrow slice of the PowerShell execution surface and is evasable by any fetch primitive not in the matched list, or by splitting fetch and execution across separate script blocks. A V2 is planned to broaden COM/HTTP primitive coverage and correlate split blocks via `ScriptBlockId` chaining to recover the fused High-tier alert.
+**Outcome**: All three tests triggered Rule B. Tests 6 and 7 fired at Medium — `IEX` matched the in-memory signal, but the COM and XML fetch mechanisms fell outside the keyword list, so only the memory tier scored. Test 9 (full Invoke-DownloadCradle script) fired at High and Medium across multiple sub-scripts, with the fused fetch + IEX cradle correctly reaching High. The detection reliably covers the IEX-anchored execution pattern; COM-only fetches without a recognised in-memory call remain a blind spot in the KQL rule. The Splunk V2 rule adds COM/LOLBin coverage — see [tuning record](../../tuning/T1059.001-PS-fn-reduction/README.md).
+
+---
+
+## Detection Output
+
+Splunk V2 SPL rule — output from Atomic Red Team T1059.001 test execution, 2026-06-25.
+
+![Splunk alert output — T1059.001 ART test results](<Assets/Screenshot 2026-06-25 171446.png>)
 
 ---
 
