@@ -85,7 +85,7 @@ def chainsaw_hits(rule: pathlib.Path, evtx: pathlib.Path) -> int:
             "chainsaw", "hunt", str(evtx),
             "--sigma", str(rule),
             "--mapping", str(MAPPING),
-            "--json", "--no-banner",
+            "--json",
         ],
         capture_output=True,
         text=True,
