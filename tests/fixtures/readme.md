@@ -87,12 +87,14 @@ legitimately changes — e.g. a Sysmon schema change or a different test.
 
 ---
 
-## .gitignore
+## git and binary files
 
-The repo ignores `*.evtx`. Add this exception **after** the `*.evtx` line in the
-"Log exports / raw telemetry" block so the negation takes effect:
+EVTX files are binary. The repo's `.gitattributes` marks them as such:
 
-```gitignore
-*.evtx
-!tests/fixtures/**/*.evtx
+```gitattributes
+*.evtx binary
 ```
+
+This prevents git from applying line-ending conversion, which would silently
+corrupt the binary content and cause Chainsaw to fail with
+"error deserializing evtx stream".
