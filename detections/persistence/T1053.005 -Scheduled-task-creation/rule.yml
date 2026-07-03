@@ -1,0 +1,15 @@
+detection:
+  selection_event:
+    EventID: 4698
+  selection_susp_path:
+    TaskContent|contains:
+      - '\Users\Public\'
+      - '\AppData\Local\Temp\'
+      - '\ProgramData\'
+  selection_susp_action:
+    TaskContent|contains:
+      - 'powershell'
+      - '-enc'
+      - 'mshta'
+      - 'rundll32'
+  condition: selection_event and (selection_susp_path or selection_susp_action)

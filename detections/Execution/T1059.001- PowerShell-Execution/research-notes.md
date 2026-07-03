@@ -14,8 +14,8 @@
 - [x] Fill in EID 4104 fields
 - [x] Run the Atomic tests and record results — see validation.md (Tests 6, 7, 9)
 - [x] Decide final tiering / correlation split — two base rules (sysmon.yml + rule.yml), correlation at platform layer
-- [ ] Review download-cradle prior art in the two relevant SigmaHQ folders (see *Existing Community Rules*)
-- [ ] Complete field-mapping verification for both log sources
+- [x] Review download-cradle prior art in the two relevant SigmaHQ folders (see *Existing Community Rules*)
+- [x] Complete field-mapping verification for both log sources
 
 ---
 
