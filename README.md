@@ -6,9 +6,6 @@ Early-career security engineer building and validating detections in Microsoft S
 
 ## Coverage Summary
 
-> **ATT&CK Navigator layer** — see [coverage/](coverage/) for the JSON layer file.
-> Screenshot placeholder: replace with an exported image from [ATT&CK Navigator](https://mitre-attack.github.io/attack-navigator/) once you have enough rules to visualise.
-
 | Tactic | Techniques Covered | Description |
 |---|---|---|
 | Persistence | T1547.001 (1) | Reg key used to launch program/ script via startup folder.
