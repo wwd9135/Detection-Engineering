@@ -9,11 +9,12 @@ Early-career security engineer building and validating detections in Microsoft S
 > **ATT&CK Navigator layer** — see [coverage/](coverage/) for the JSON layer file.
 > Screenshot placeholder: replace with an exported image from [ATT&CK Navigator](https://mitre-attack.github.io/attack-navigator/) once you have enough rules to visualise.
 
-| Tactic | Techniques Covered |
-|---|---|
-| Persistence | T1547.001 |
-| *(more to come)* | |
-
+| Tactic | Techniques Covered | Description |
+|---|---|---|
+| Persistence | T1547.001 (1) | Reg key used to launch program/ script via startup folder.
+| Persistence | T1547.001 (2) | Startup folder used to launch program/ script on startup.
+| Persistence | T1053.005 | Scheduled task creation for priv esc/ persistence.
+| Execution | T1059.001 | PowerShell execution (Downloads).
 ---
 
 ## Repo Navigation
