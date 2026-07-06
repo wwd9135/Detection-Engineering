@@ -2,21 +2,35 @@
 Event-level regression tests for the detection portfolio.
 
 Each detection with tests gets a fixture folder named by its ATT&CK technique
-ID, containing two frozen event-log exports:
+ID, holding sample event-log exports whose FILENAME declares what the rule
+should do. Classification is by filename prefix (case-insensitive):
+
+    malicious*.evtx  -> the rule MUST fire on it       (>= 1 hit)
+    benign*.evtx     -> the rule MUST stay quiet on it  (0 hits)
+
+A fixture may hold a single pair (flat) or many samples, in the folder itself
+or in ANY subfolder — the whole tree is searched recursively and every sample
+is tested as its own case:
 
     tests/fixtures/
-    └── T1059.001/
-        ├── malicious.evtx   # rule MUST fire
-        └── benign.evtx      # rule MUST stay quiet
+    ├── T1059.001/                       # one pair, flat
+    │   ├── malicious.evtx
+    │   └── benign.evtx
+    └── T1053.005/
+        └── ChainsawTestData/            # many samples, in a subfolder
+            ├── malicious_schtask_encoded_powershell.evtx
+            ├── malicious_privesc_runlevel_highest.evtx
+            ├── benign_signed_backup_task.evtx
+            └── benign_installer_temp_task.evtx
 
-The folder name (e.g. T1059.001) is matched to its detection by prefix, since
+The folder name (e.g. T1053.005) is matched to its detection by prefix, since
 detection folders are named {TECHNIQUE-ID}-{slug}:
 
-    tests/fixtures/T1059.001/  ->  detections/**/T1059.001-*/rule.yml
+    tests/fixtures/T1053.005/  ->  detections/**/T1053.005-*/rule.yml
 
-Adding a detection to the suite is DATA-ONLY: create tests/fixtures/<ID>/ with
-the two evtx files and commit. No edits to this file. Every fixture folder is
-tested on every run — nothing is swapped in or out.
+Adding a detection to the suite is DATA-ONLY: create tests/fixtures/<ID>/, drop
+in one or more malicious*/benign* .evtx files (optionally under a subfolder),
+and commit. No edits to this file. Every sample is tested on every run.
 
 Place this file at: tests/test_detections.py
 """
@@ -32,46 +46,109 @@ FIXTURES = ROOT / "tests" / "fixtures"
 MAPPING = ROOT / "tests" / "mappings" / "sigma-event-logs-all.yml"
 
 
+def rules_for(tech_id: str):
+    """Every rule.yml whose detection folder matches this technique ID.
+
+    Detection folders are named {TECHNIQUE-ID}-{slug}, so match on prefix; also
+    allow a folder named exactly the technique ID. Returns a sorted list — a
+    technique can legitimately map to more than one detection.
+    """
+    return sorted(
+        set(ROOT.glob(f"detections/**/{tech_id}-*/rule.yml"))
+        | set(ROOT.glob(f"detections/**/{tech_id}/rule.yml"))
+    )
+
+
+def verdict_of(evtx: pathlib.Path):
+    """Expected verdict for a sample, from its filename prefix, or None."""
+    name = evtx.name.lower()
+    if name.startswith("malicious"):
+        return "malicious"
+    if name.startswith("benign"):
+        return "benign"
+    return None
+
+
 def discover():
-    """Pair each fixture folder (named by technique ID) with its rule.yml."""
-    cases = []
+    """Build the parametrized case lists by walking tests/fixtures/.
+
+    Returns (malicious_cases, benign_cases, wiring_errors):
+      * malicious/benign cases are (rule, evtx) pairs, one per sample per
+        matching rule.
+      * wiring_errors are human-readable messages for setup mistakes that must
+        FAIL loudly rather than pass silently — a fixture with no matching rule,
+        a fixture with no samples, or a sample whose name doesn't start with
+        malicious/benign (which would otherwise be silently untested).
+    """
+    malicious, benign, wiring = [], [], []
     if not FIXTURES.exists():
-        return cases
+        return malicious, benign, wiring
+
     for fix_dir in sorted(p for p in FIXTURES.iterdir() if p.is_dir()):
-        tech_id = fix_dir.name  # e.g. "T1059.001"
-        # Detection folders are named {TECHNIQUE-ID}-{slug}, so match on prefix.
-        matches = sorted(
-            set(ROOT.glob(f"detections/**/{tech_id}-*/rule.yml"))
-            | set(ROOT.glob(f"detections/**/{tech_id}/rule.yml"))
-        )
-        if not matches:
-            # A fixture with no matching detection is a wiring bug, not a pass.
-            cases.append(pytest.param(None, fix_dir, id=f"{tech_id}-NO-RULE"))
+        tech_id = fix_dir.name  # e.g. "T1053.005"
+        rules = rules_for(tech_id)
+        samples = sorted(fix_dir.rglob("*.evtx"))
+
+        if not samples:
+            wiring.append(pytest.param(
+                f"fixture '{tech_id}' contains no *.evtx samples",
+                id=f"{tech_id}-NO-SAMPLES",
+            ))
             continue
-        for rule in matches:
-            # Detection folder name as the test id keeps output readable and
-            # distinguishes multiple rules that share one technique.
-            cases.append(pytest.param(rule, fix_dir, id=rule.parent.name))
-    return cases
+        if not rules:
+            # A fixture with samples but no detection is a wiring bug, not a pass.
+            wiring.append(pytest.param(
+                f"fixture '{tech_id}' has {len(samples)} sample(s) but no "
+                f"matching detections/**/{tech_id}-*/rule.yml",
+                id=f"{tech_id}-NO-RULE",
+            ))
+            continue
+
+        for evtx in samples:
+            verdict = verdict_of(evtx)
+            if verdict is None:
+                wiring.append(pytest.param(
+                    f"sample '{evtx.relative_to(FIXTURES)}' must start with "
+                    f"'malicious' or 'benign' to declare its expected verdict",
+                    id=f"{tech_id}:{evtx.stem}-UNCLASSIFIED",
+                ))
+                continue
+            for rule in rules:
+                # Test id = detection folder + sample stem: readable, and unique
+                # when several rules or samples share one technique.
+                case = pytest.param(rule, evtx, id=f"{rule.parent.name}/{evtx.stem}")
+                (malicious if verdict == "malicious" else benign).append(case)
+
+    return malicious, benign, wiring
 
 
-CASES = discover()
+MALICIOUS_CASES, BENIGN_CASES, WIRING_ERRORS = discover()
 
 
 def test_fixtures_present():
-    """Fail loudly if no fixtures were found, instead of a silent green build.
+    """Fail loudly if no samples were found, instead of a silent green build.
 
-    An empty CASES list makes the parametrized tests skip with id NOTSET, which
+    Empty case lists make the parametrized tests skip with id NOTSET, which
     would otherwise pass CI while testing nothing. Most common cause: the .evtx
     files aren't committed because .gitignore blocks *.evtx (add the exception
     '!tests/fixtures/**/*.evtx') — and git won't commit the now-empty folders.
     Check with: git ls-files tests/fixtures/
     """
-    assert CASES, (
-        "No fixture folders found under tests/fixtures/ on this machine. "
-        "Either none are committed yet, or *.evtx files are blocked by "
+    assert MALICIOUS_CASES or BENIGN_CASES, (
+        "No malicious*/benign* .evtx samples found under tests/fixtures/ on this "
+        "machine. Either none are committed yet, or *.evtx files are blocked by "
         ".gitignore. Run: git ls-files tests/fixtures/"
     )
+
+
+@pytest.mark.parametrize("message", WIRING_ERRORS)
+def test_no_wiring_errors(message):
+    """Surface each fixture wiring bug as its own failing test.
+
+    Keeps a mis-wired fixture (no rule, no samples, or an unclassified filename)
+    from slipping through as an untested sample on a green build.
+    """
+    pytest.fail(message)
 
 
 def chainsaw_hits(rule: pathlib.Path, evtx: pathlib.Path) -> int:
@@ -106,25 +183,19 @@ def chainsaw_hits(rule: pathlib.Path, evtx: pathlib.Path) -> int:
     return len(data)
 
 
-@pytest.mark.parametrize("rule,fixtures", CASES)
-def test_fires_on_malicious(rule, fixtures):
-    assert rule is not None, (
-        f"No detections/**/{fixtures.name}-*/rule.yml found for this fixture"
-    )
-    hits = chainsaw_hits(rule, fixtures / "malicious.evtx")
+@pytest.mark.parametrize("rule,evtx", MALICIOUS_CASES)
+def test_fires_on_malicious(rule, evtx):
+    hits = chainsaw_hits(rule, evtx)
     assert hits >= 1, (
-        f"{fixtures.name}: rule MISSED its malicious sample "
+        f"{evtx.name}: rule MISSED a malicious sample "
         f"(likely the rule logic OR the Chainsaw mapping)"
     )
 
 
-@pytest.mark.parametrize("rule,fixtures", CASES)
-def test_quiet_on_benign(rule, fixtures):
-    assert rule is not None, (
-        f"No detections/**/{fixtures.name}-*/rule.yml found for this fixture"
-    )
-    hits = chainsaw_hits(rule, fixtures / "benign.evtx")
+@pytest.mark.parametrize("rule,evtx", BENIGN_CASES)
+def test_quiet_on_benign(rule, evtx):
+    hits = chainsaw_hits(rule, evtx)
     assert hits == 0, (
-        f"{fixtures.name}: rule FIRED on benign sample ({hits} hit(s)) — "
+        f"{evtx.name}: rule FIRED on a benign sample ({hits} hit(s)) — "
         f"possible false positive / over-broad match / weakened exclusion"
     )

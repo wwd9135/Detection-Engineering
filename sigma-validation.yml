@@ -1,0 +1,29 @@
+# ============================================================
+# Sigma validation config for `sigma check`
+# ============================================================
+# Passed to CI via:  sigma check -c sigma-validation.yml detections/
+#
+# Format (pySigma SigmaValidator.from_yaml):
+#   validators:  list of validators to enable.
+#                'all' turns on every installed validator.
+#                A name prefixed with '-' removes that one from the set.
+#
+# WHY we disable two of the built-in validators
+# ----------------------------------------------
+# This repo uses a folder-per-detection layout:
+#   detections/{tactic}/{TECHNIQUE-ID}-{slug}/rule.yml
+# so the technique + description live in the FOLDER name and every
+# rule file is simply `rule.yml` (alongside rule.kql, README.md, etc).
+#
+# Sigma's filename validators assume the SigmaHQ model instead — one
+# flat folder where each file needs a long, unique, descriptive name:
+#   * filename_length    → wants the filename 10–90 chars ('rule.yml' is 8)
+#   * duplicate_filename → wants every rule file name to be unique
+# Neither applies here: the files never collide (separate folders) and
+# the folder name already carries the descriptive part. So we switch
+# just those two off and keep every other best-practice check on.
+# ============================================================
+validators:
+  - all
+  - -filename_length
+  - -duplicate_filename

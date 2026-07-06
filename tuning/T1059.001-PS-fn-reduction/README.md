@@ -1,7 +1,7 @@
 # Tuning: Expand COM/LOLBin Coverage in T1059.001 EID 4104 Detection
 
 > **Date**: 2026-06-25
-> **Rule**: [T1059.001 PowerShell Execution — Download Cradle Detection](../../detections/Execution/T1059.001-%20PowerShell-Execution/README.md)
+> **Rule**: [T1059.001 PowerShell Execution — Download Cradle Detection](../../detections/execution/T1059.001-PowerShell-Execution/README.md)
 > **Author**: William Richardson
 
 ---
@@ -10,7 +10,7 @@
 
 | Field | Value |
 |---|---|
-| Rule file | `detections/Execution/T1059.001- PowerShell-Execution/rule.spl` |
+| Rule file | `detections/execution/T1059.001-PowerShell-Execution/rule.spl` |
 | Rule ID | `2b3c4d5e-6f7a-8b9c-0d1e-2f3a4b5c6d7e` |
 | Deployed in | Splunk (lab workspace) |
 | Observation period | 2026-06-23 – 2026-06-25 (synthetic lab) |

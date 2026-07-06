@@ -1,18 +1,29 @@
 # Detection Test Fixtures
 
-Each detection with event-level tests gets a folder here named **exactly** after
-its detection folder, containing two frozen Windows Event Log exports:
+Each detection with event-level tests gets a folder here named after its ATT&CK
+**technique ID** (or its full detection folder name — either matches). It holds
+one or more frozen Windows Event Log exports whose **filename** declares what the
+rule should do (prefix is case-insensitive):
 
 ```
 tests/fixtures/
-└── T1547.001-registry-run-keys/
-    ├── malicious.evtx   # contains the attack behaviour — rule MUST fire
-    └── benign.evtx      # benign + near-miss activity — rule MUST stay quiet
+├── T1547.001-registry-run-keys/         # a single flat pair
+│   ├── malicious.evtx   # contains the attack behaviour — rule MUST fire
+│   └── benign.evtx      # benign + near-miss activity — rule MUST stay quiet
+└── T1053.005/                            # many samples, in a subfolder
+    └── ChainsawTestData/
+        ├── malicious_schtask_encoded_powershell.evtx   # MUST fire
+        ├── malicious_privesc_runlevel_highest.evtx     # MUST fire
+        ├── benign_signed_backup_task.evtx              # MUST stay quiet
+        └── benign_installer_temp_task.evtx             # MUST stay quiet
 ```
 
-`tests/test_detections.py` discovers these automatically. Adding a detection to
-CI is **data-only**: drop in a fixture pair whose folder name matches the
-detection folder, commit. No code changes.
+`tests/test_detections.py` discovers these automatically: the fixture folder is
+searched **recursively**, every `malicious*.evtx` / `benign*.evtx` becomes its
+own test case, and any file that starts with neither (or a fixture with no
+matching rule / no samples) FAILS loudly rather than passing untested. Adding a
+detection to CI is **data-only**: drop in one or more `malicious*` / `benign*`
+`.evtx` files under a folder named for the technique, commit. No code changes.
 
 ---
 

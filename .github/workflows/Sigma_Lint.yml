@@ -38,12 +38,14 @@ on:
       - 'detections/**'       # any file inside detections/
       - 'tests/**'            # fixture evtx files and test harness
       - 'requirements.txt'    # toolchain change should re-validate
+      - 'sigma-validation.yml'  # validator config change should re-validate
       - '.github/workflows/Sigma_Lint.yml'  # self: workflow file change
   pull_request:
     paths:
       - 'detections/**'
       - 'tests/**'
       - 'requirements.txt'
+      - 'sigma-validation.yml'
       - '.github/workflows/Sigma_Lint.yml'
   workflow_dispatch:
     
@@ -123,9 +125,12 @@ jobs:
       # GitHub Actions treats a non-zero exit as a step failure,
       # which fails the job, which fails the build.
       # --------------------------------------------------------
+      # -c sigma-validation.yml disables the filename_length and
+      # duplicate_filename validators, which don't apply to this repo's
+      # folder-per-detection layout (see that file for the rationale).
       - name: Run sigma check on all rules
         run: |
-          sigma check --debug detections/
+          sigma check --debug -c sigma-validation.yml detections/
 
   # ----------------------------------------------------------
   # JOB 2: compile-test
