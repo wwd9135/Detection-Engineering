@@ -125,7 +125,7 @@ jobs:
       # --------------------------------------------------------
       - name: Run sigma check on all rules
         run: |
-          sigma check detections/
+          sigma check --debug detections/
           # If you want verbose output for debugging, add --debug:
           # sigma check --debug detections/
 
