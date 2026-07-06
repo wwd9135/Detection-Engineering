@@ -23,7 +23,7 @@ See [docs/detection-template.md](../docs/detection-template.md) for the ADS READ
 | Persistence | T1547 | .001 | [Registry Run Key Persistence](persistence/T1547.001-registry-run-keys/README.md) | High | Stable |
 | Persistence | T1547 | .001 | [Startup Folder Persistence](persistence/T1547.001-Startup-Folder-File-Creation/README.md) | High | Experimental |
 | Persistence | T1053 | .005 | [Scheduled task creation](persistence/T1053.005-Scheduled-task-creation/README.md) | High | Experimental |
-| Execution   | T1059 | .001 | [PowerShell execution](Execution/T1059.001/PowerShell_Execution/READEME.md) | High | Stable
+| Execution   | T1059 | .001 | [PowerShell execution](Execution/T1059.001-PowerShell-Execution/README.md) | High | Stable
 ---
 
 ## Adding a New Detection
