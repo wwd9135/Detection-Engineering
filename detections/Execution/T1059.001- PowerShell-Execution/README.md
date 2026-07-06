@@ -3,7 +3,7 @@
 > **Technique**: T1059.001 — Command and Scripting Interpreter: PowerShell
 > **Tactic**: Execution (TA0002)
 > **Severity**: High
-> **Status**: Experimental
+> **Status**: Stable
 
 ---
 

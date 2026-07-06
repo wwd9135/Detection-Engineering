@@ -1,7 +1,7 @@
 title: PowerShell Script Block Logging via Windows Event ID 4104
 priority: 6
 id: 2b3c4d5e-6f7a-8b9c-0d1e-2f3a4b5c6d7e
-status: experimental
+status: stable
 description: |
   Detects PowerShell script block logging events via Windows Event ID 4104.
   Adversaries commonly use PowerShell for executing scripts and commands.
