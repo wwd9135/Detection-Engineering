@@ -1,15 +1,105 @@
+# limitations- field mapping isn't perfect as arguments, path and trigger the three selection paths used here come from one field called TaskContent. This is a limitation of the field mapping in the detection engine. The field mapping is not perfect and may not capture all relevant information for scheduled task creation events.
+# When converted to SPL/ KQL or your chosen SIEM query language, the field mapping will be more accurate and will allow for better detection of scheduled task creation events.
+# Then you'd pick into the XML and parse out the relevant fields for arguments, path and trigger. This will allow you to create more accurate detections for scheduled task creation events.
+
+title: Scheduled Task Creation
+id: b7e6a2c1-4f3d-4c8a-9e2b-1a5d6f7c8e90
+status: experimental
+description: |
+  Detects suspicious scheduled task creation via Windows Security Event ID 4698.
+  Adversaries commonly use scheduled tasks for persistence and privilege escalation (T1053.005).
+  Everything below is matched against the single TaskContent field, which holds the task-definition XML.
+  Three signal categories are used:
+  1. WHERE it runs   - the task executes from a world-writable / staging folder (location) or runs a scripting-engine file type (extension). Two selections.
+  2. HOW it runs      - the action carries LOLBin interpreter flags used to force-run, hide, or obfuscate script execution.
+  3. PRIVILEGE x TRIGGER - the task both auto-starts (boot/logon) AND runs elevated/SYSTEM. Neither is damning alone; together it is worth investigating (combinational).
+references:
+  - https://attack.mitre.org/techniques/T1053/005/
+author: William Richardson
+date: 2026-07-06
+modified: 2026-07-06
+tags:
+  - attack.persistence
+  - attack.t1053.005
+logsource:
+  product: windows
+  service: security
+level: medium
 detection:
+  # ANDed into every branch so the rule only ever inspects task-creation events.
   selection_event:
     EventID: 4698
+
+  # ---- Category 1 - WHERE the task runs ---------------------------------
+  # 1a. Location: world-writable / staging folders attackers stage payloads in.
   selection_susp_path:
     TaskContent|contains:
       - '\Users\Public\'
       - '\AppData\Local\Temp\'
+      - '\AppData\Roaming\'
       - '\ProgramData\'
-  selection_susp_action:
+      - '\Windows\Temp\'
+      - '\PerfLogs\'
+      - '\Downloads\'
+  # 1b. File type: scripting-engine extensions. Anchored with the closing '<'
+  #     of the <Command> tag so we match the executable being run, not the same
+  #     extension mentioned inside an argument string.
+  selection_susp_ext:
     TaskContent|contains:
-      - 'powershell'
-      - '-enc'
+      - '.ps1<'
+      - '.vbs<'
+      - '.js<'
+      - '.jse<'
+      - '.wsf<'
+      - '.hta<'
+      - '.bat<'
+      - '.cmd<'
+      - '.scr<'
+
+  # ---- Category 2 - HOW it runs (LOLBin arguments) ----------------------
+  # Interpreter flags/patterns that force script execution, hide the window, or
+  # obfuscate. These live inside <Command> or <Arguments> in the XML.
+  # NOTE: bare 'powershell' is deliberately NOT here - far too common to fire on.
+  selection_susp_args:
+    TaskContent|contains:
+      - '-nop'                 # -NoProfile
+      - '-noni'                # -NonInteractive
+      - '-w hidden'            # -WindowStyle Hidden
+      - '-windowstyle hidden'
+      - 'bypass'               # -ExecutionPolicy Bypass / -ep bypass / -exec bypass
+      - '-enc'                 # -EncodedCommand
+      - 'frombase64string'
+      - 'iex('                 # anchored so we don't match iexplore.exe
+      - ' iex '
+      - 'invoke-expression'
+      - 'downloadstring'
+      - 'downloadfile'
       - 'mshta'
       - 'rundll32'
-  condition: selection_event and (selection_susp_path or selection_susp_action)
+      - 'regsvr32'
+
+  # ---- Category 3 - PRIVILEGE x TRIGGER (combinational) -----------------
+  # Elevation alone is normal for admin tasks; boot/logon triggers alone are
+  # normal for legit persistence-by-design software. ANDed together in the
+  # condition = auto-starting AND elevated -> medium-severity, worth a look.
+  selection_elevation:
+    TaskContent|contains:
+      - 'HighestAvailable'     # <RunLevel>HighestAvailable</RunLevel>
+      - 'S-1-5-18'             # runs as SYSTEM (well-known SID)
+      - '<UserId>SYSTEM'
+      - '<UserId>LocalSystem'
+  selection_trigger:
+    TaskContent|contains:
+      - '<BootTrigger'         # fires at system startup
+      - '<LogonTrigger'        # fires at user logon
+
+condition: selection_event and ((selection_susp_path and selection_susp_ext) or selection_susp_args or (selection_elevation and selection_trigger))
+
+
+# Notes for SPl conversion:
+# 1. For analysts help I want to clearly show in my final SPL the description of the task the attacker created
+# 2. I want to show the path of the task that was created, the full arguments and start in (location where to run from) too.
+# Reason being this will help analysts determine whether the task is malicious or admin activity,
+# 3. I want to show the user that created the task, and the user that is running the task (if different) so analysts can determine if this is a privilege escalation attempt or not.
+# 4. I want to show schedule details ie the trigger configured.
+# With all of this the analyst should be able to determine if this is a malicious scheduled task creation or not.
