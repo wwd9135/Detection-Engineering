@@ -55,9 +55,7 @@ detection:
     ScriptBlockText|contains:
       - 'IEX'
       - 'Invoke-Expression'
-      - 'Invoke-Command'
       - 'Invoke-ScriptBlock'
-      - 'Invoke-Item'
       - '[ScriptBlock]::Create'
   indicator_evasion:
     ScriptBlockText|contains:
