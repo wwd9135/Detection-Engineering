@@ -10,8 +10,9 @@
 --- 
 ### Summary table
 | Round | Benign FP rate | Malicious TP rate |
-| iteration 1 | 20% | 80% |
-| iteration 2 | 100% | 100% |
+| iteration 1 | 20% | 80%   |
+| iteration 2 | 40% | 100%  |
+| iteration 3 | 0%  | 100%  |
 
 
 ## Raw result from iteration 1
@@ -31,6 +32,9 @@ tests/test_detections.py::test_quiet_on_benign[T1059.001-PowerShell-Execution/be
 ## Description of results
 First iteration worked well, 7/9 were expected results, the malicious failed once, benign failed once. 
 Second iteration eliminated these two failures, now benign wont fire and malicious will always be detected. 
+tions.py::test_quiet_on_benign[T1053.005-Scheduled-task-creation/benign_benign_user_logon_notepad] PASSED [ 92%]
+======================== 12 passed, 1 skipped in 0.10s =========================
+--- 
 
 I changed the following to achieve those results between first and second iteration:
 Create a filter for- 
@@ -44,6 +48,17 @@ I also changed the extension filtering so it only flags when a file is given as 
 This reduced FP rates without increasing TP, as the XML always manifests in this fashion:
 C:\Scripts\Cleanup.ps1</Arguments>
 
---- 
+Final result from iteration 3:
+tests/test_detections.py::test_fixtures_present PASSED                   [  7%]
+tests/test_detections.py::test_no_wiring_errors[NOTSET] SKIPPED (got...) [ 15%]
+tests/test_detections.py::test_fires_on_malicious[T1053.005-Scheduled-task-creation/malicious_mal_installer_temp_task] PASSED [ 23%]
+tests/test_detections.py::test_fires_on_malicious[T1053.005-Scheduled-task-creation/malicious_mal_privesc_runlevel_highest] PASSED [ 30%]
+tests/test_detections.py::test_fires_on_malicious[T1053.005-Scheduled-task-creation/malicious_mal_pscmdlet_encoded] PASSED [ 38%]
+tests/test_detections.py::test_fires_on_malicious[T1053.005-Scheduled-task-creation/malicious_mal_schtask_encoded_powershell] PASSED [ 46%]
+tests/test_detections.py::test_fires_on_malicious[T1053.005-Scheduled-task-creation/malicious_mal_wmi_registerbyxml_temp_path] PASSED [ 53%]
+tests/test_detections.py::test_fires_on_malicious[T1059.001-PowerShell-Execution/malicious] PASSED [ 61%]
+tests/test_detections.py::test_quiet_on_benign[T1053.005-Scheduled-task-creation/benign_benign_clean_powershell_script] PASSED [ 69%]
+tests/test_detections.py::test_quiet_on_benign[T1053.005-Scheduled-task-creation/benign_benign_signed_backup_task] PASSED [ 76%]
+tests/test_detections.py::test_quiet_on_benign[T1053.005-Scheduled-task-creation/benign_benign_system_maintenance_task] PASSED [ 84%]
 
 # Atomic red team valiadtion
