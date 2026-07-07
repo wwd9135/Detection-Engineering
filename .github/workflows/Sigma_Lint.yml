@@ -130,7 +130,7 @@ jobs:
       # folder-per-detection layout (see that file for the rationale).
       - name: Run sigma check on all rules
         run: |
-          sigma check --debug -c sigma-validation.yml detections/
+          sigma check -c sigma-validation.yml detections/
 
   # ----------------------------------------------------------
   # JOB 2: compile-test
