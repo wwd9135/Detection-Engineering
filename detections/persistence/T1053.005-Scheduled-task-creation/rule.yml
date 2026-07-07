@@ -50,16 +50,17 @@ detection:
   #     of the <Command> tag so we match the executable being run, not the same
   #     extension mentioned inside an argument string.
   selection_susp_ext:
+    selection_susp_ext:
     TaskContent|contains:
-      - '.ps1<'
-      - '.vbs<'
-      - '.js<'
-      - '.jse<'
-      - '.wsf<'
-      - '.hta<'
-      - '.bat<'
-      - '.cmd<'
-      - '.scr<'
+      - '.ps1</Command>'
+      - '.vbs</Command>'
+      - '.js</Command>'
+      - '.jse</Command>'
+      - '.wsf</Command>'
+      - '.hta</Command>'
+      - '.bat</Command>'
+      - '.cmd</Command>'
+      - '.scr</Command>'
 
   # ==== Category 2 - HOW it runs (LOLBin arguments) ====================
   # Interpreter flags/patterns that force script execution, hide the window, or
@@ -67,7 +68,6 @@ detection:
   # NOTE: bare 'powershell' is deliberately NOT here - far too common to fire on.
   selection_susp_args:
     TaskContent|contains:
-      - '-nop'                 # -NoProfile
       - '-noni'                # -NonInteractive
       - '-w hidden'            # -WindowStyle Hidden
       - '-windowstyle hidden'
@@ -101,7 +101,7 @@ detection:
   # NB: 'condition' MUST be indented inside the 'detection:' block. At column 0
   # it becomes a top-level key and Sigma reports "must contain at least one
   # condition" because the detection block then has no condition of its own.
-  condition: selection_event and ((selection_susp_path and selection_susp_ext) or selection_susp_args or (selection_elevation and selection_trigger))
+  condition: selection_event and ((selection_susp_path or selection_susp_ext) or selection_susp_args or (selection_elevation and selection_trigger))
 
 
 # Notes for SPl conversion:
