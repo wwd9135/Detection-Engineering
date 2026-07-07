@@ -60,6 +60,7 @@ detection:
       - '.bat<'
       - '.cmd<'
       - '.scr<'
+      - '.exe<'
 
   # ==== Category 2 - HOW it runs (LOLBin arguments) ====================
   # Interpreter flags/patterns that force script execution, hide the window, or
