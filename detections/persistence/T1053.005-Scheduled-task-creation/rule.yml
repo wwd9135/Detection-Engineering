@@ -101,7 +101,7 @@ detection:
   # NB: 'condition' MUST be indented inside the 'detection:' block. At column 0
   # it becomes a top-level key and Sigma reports "must contain at least one
   # condition" because the detection block then has no condition of its own.
-  condition: selection_event and ((selection_susp_path or selection_susp_ext) or selection_susp_args or (selection_elevation and selection_trigger))
+  condition: selection_event and ((selection_susp_path and selection_susp_ext) or selection_susp_args or (selection_elevation and selection_trigger))
 
 
 # Notes for SPl conversion:
