@@ -190,10 +190,31 @@ jobs:
       # --------------------------------------------------------
       - name: Compile rules to KQL (compile sanity check)
         run: |
-          sigma convert \
-            --target kusto \
-            --pipeline microsoft_xdr \
-            detections/
+          # Compile each rule individually. The microsoft_xdr pipeline maps Sigma
+          # logsource CATEGORIES (registry_set, file_event, process_creation, ...)
+          # to MDE Advanced-Hunting Device tables. Rules that don't target an MDE
+          # Device table have no table to compile to — e.g. classic Windows Event
+          # Log rules on `service: security` (EID 4698) or `category: powershell`
+          # (EID 4104); those are deployed via Sentinel's SecurityEvent table, not
+          # MDE. We SKIP those (expected) and FAIL only on a genuine conversion
+          # error (invalid KQL, unsupported field mapping) on a rule that DOES map.
+          real_failures=0
+          skipped=0
+          for rule in $(find detections -name 'rule.yml' | sort); do
+            if out=$(sigma convert --target kusto --pipeline microsoft_xdr "$rule" 2>&1); then
+              echo "  ok    $rule"
+            elif echo "$out" | grep -q "Unable to determine table name"; then
+              echo "  skip  $rule  (no MDE Device table — deploy via Sentinel SecurityEvent)"
+              skipped=$((skipped + 1))
+            else
+              echo "  FAIL  $rule"
+              echo "$out" | sed 's/^/          /'
+              real_failures=$((real_failures + 1))
+            fi
+          done
+          echo ""
+          echo "Compile summary: $skipped skipped (no MDE table), $real_failures real failure(s)."
+          [ "$real_failures" -eq 0 ]
   test-detections:
     needs: lint
     runs-on: ubuntu-latest
