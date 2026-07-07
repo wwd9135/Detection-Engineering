@@ -1,6 +1,11 @@
 # limitations- field mapping isn't perfect as arguments, path and trigger the three selection paths used here come from one field called TaskContent. This is a limitation of the field mapping in the detection engine. The field mapping is not perfect and may not capture all relevant information for scheduled task creation events.
 # When converted to SPL/ KQL or your chosen SIEM query language, the field mapping will be more accurate and will allow for better detection of scheduled task creation events.
 # Then you'd pick into the XML and parse out the relevant fields for arguments, path and trigger. This will allow you to create more accurate detections for scheduled task creation events.
+#
+# NB (chainsaw gotcha): do NOT use runs of 3+ dashes '---' inside comments here.
+# Chainsaw's Sigma loader treats a '---' dash-run as a YAML document separator
+# and silently drops the rule ("No valid detection rules were found"). The '===='
+# separators below are cosmetic and safe; '----' is not.
 
 title: Scheduled Task Creation
 id: b7e6a2c1-4f3d-4c8a-9e2b-1a5d6f7c8e90
@@ -30,7 +35,7 @@ detection:
   selection_event:
     EventID: 4698
 
-  # ---- Category 1 - WHERE the task runs ---------------------------------
+  # ==== Category 1 - WHERE the task runs ================================
   # 1a. Location: world-writable / staging folders attackers stage payloads in.
   selection_susp_path:
     TaskContent|contains:
@@ -56,7 +61,7 @@ detection:
       - '.cmd<'
       - '.scr<'
 
-  # ---- Category 2 - HOW it runs (LOLBin arguments) ----------------------
+  # ==== Category 2 - HOW it runs (LOLBin arguments) ====================
   # Interpreter flags/patterns that force script execution, hide the window, or
   # obfuscate. These live inside <Command> or <Arguments> in the XML.
   # NOTE: bare 'powershell' is deliberately NOT here - far too common to fire on.
@@ -78,7 +83,7 @@ detection:
       - 'rundll32'
       - 'regsvr32'
 
-  # ---- Category 3 - PRIVILEGE x TRIGGER (combinational) -----------------
+  # ==== Category 3 - PRIVILEGE x TRIGGER (combinational) ===============
   # Elevation alone is normal for admin tasks; boot/logon triggers alone are
   # normal for legit persistence-by-design software. ANDed together in the
   # condition = auto-starting AND elevated -> medium-severity, worth a look.

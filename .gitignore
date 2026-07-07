@@ -42,6 +42,13 @@ htmlcov/
 coverage.xml
 *.cover
 
+# Chainsaw binary — platform-specific and multi-MB; CI fetches it fresh from the
+# release, and the harness auto-detects a local copy here. Never commit it.
+# (The small sigma-*.yml files under tests/mappings/ ARE fine to commit so the
+#  suite runs right after a clone; CI re-copies them from the chainsaw release.)
+tests/chainsaw
+tests/chainsaw.exe
+
 # ── Type checkers ─────────────────────────────────────────────────────────────
 .mypy_cache/
 .dmypy.json

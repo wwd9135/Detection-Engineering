@@ -43,7 +43,7 @@ Early-career security engineer building and validating detections in Microsoft S
 
 See [docs/methodology.md](docs/methodology.md) for the full write-up. The short version:
 
-> **Hypothesis → Research → Rule → Validate → Tune → Metrics**
+> **Hypothesis → Research → Rule → Validate(1 Chainsaw batch testing) → Tune → convert to kql/siem language -> Validate (2 Atomic Red Team) -> deploy and monitor Metrics**
 
 Every detection in this repo started as a threat-behaviour hypothesis, was grounded in ATT&CK, authored in Sigma, validated by generating the behaviour in a home lab, and then tuned based on observed false-positive rates.
 

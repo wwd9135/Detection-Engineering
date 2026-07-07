@@ -31,7 +31,9 @@ See [docs/detection-template.md](../docs/detection-template.md) for the ADS READ
 1. Create the folder: `detections/{tactic}/{TECHNIQUE-ID}-{short-slug}/`
 2. Copy `docs/detection-template.md` to `README.md` and fill it in.
 3. Author the Sigma rule in `rule.yml` and validate with `sigma check`.
-4. Compile to KQL: `sigma convert -t kusto -p microsoft_xdr rule.yml > rule.kql`
+4. Use chainsaw to test batches of logs against your rule
+5. Compile to KQL: `sigma convert -t kusto -p microsoft_xdr rule.yml > rule.kql`
+6. Test SIEM picks up the threat using Atomic Red Team for live data.
 5. Write `research-notes.md` and `validation.md`.
 6. Update the coverage table above.
 7. Update the ATT&CK Navigator layer in `coverage/`.
