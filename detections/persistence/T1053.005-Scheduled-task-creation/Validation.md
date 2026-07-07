@@ -40,6 +40,10 @@ Registering a seemingly admin/benign sounding executable to the public file syst
 
 In doing this though a benign test started failing, I'd rather accept a benign test failure than a malciious one however so I'll leave this as failing and in the splunk SIEM I can tune out this False positive benign test anyhow.
 
+I also changed the extension filtering so it only flags when a file is given as an argument eg. Launch file- malicious.ps1<Arguments>
+This reduced FP rates without increasing TP, as the XML always manifests in this fashion:
+C:\Scripts\Cleanup.ps1</Arguments>
+
 --- 
 
 # Atomic red team valiadtion
