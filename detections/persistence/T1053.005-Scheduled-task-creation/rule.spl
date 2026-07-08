@@ -1,0 +1,127 @@
+```
+============================================================
+Detection: Persistence via scheduled task creation
+Technique: T1053.005 - Scheduled Task/Job: Scheduled Task
+Tactic:    Persistence (TA0003)
+Platform:  Splunk SPL. Counterpart to rule.kql (Sentinel) and rule.yml (Sigma base).
+Data:      XmlWinEventLog : Security, EventCode 4698 (a scheduled task was created)
+Author:    William Richardson   Date: 2026-07-08
+
+SCOPE - what this rule can and cannot see
+  Only sees EventCode 4698 (task CREATED). Misses modifications to existing tasks (4702)
+  and enable/disable of existing tasks (4700/4701). Cannot see grandchild processes /
+  extensions if the task launches a jump script/program.
+
+FIRING LOGIC (weighted score - see SEVERITY block)
+  High          = Score >= 5   (3+ signals, or a strong pair plus elevated auto-start)
+  Medium        = Score 3-4     (any two signals, or elevated AND auto-start together)
+  Informational = Score 2       (a single strong signal: staging path, script ext, or LOLBin args)
+  elevation-only / trigger-only (Score 1) never fire on their own.
+  Raise the floor to Score >= 3 to drop Informational entirely.
+
+WHY ONE ROW PER TASK (answers the old "group by GUID" TODO):
+  Each 4698 is a SINGLE Splunk event carrying the whole task XML, so all five signals are
+  scored on that one event - no mvexpand, no duplicate flag rows to recombine. Multiple
+  <Exec> blocks in one task simply become multivalue Command/Arguments fields.
+
+FALSE POSITIVES / TUNING
+  - Legit admin/automation using IEX or Invoke-WebRequest will match (esp. Medium).
+  - Missing 4702 correlation - task modifications are a clear blind spot.
+
+REGEX ESCAPING (the #1 SPL gotcha): if a match() returns nothing, your Splunk version
+  wants doubled backslashes - e.g. replace \. with \\. . The path patterns below use "."
+  as a stand-in for the "\" path separator ON PURPOSE, to sidestep backslash escaping.
+
+TA ASSUMPTION: assumes Splunk_TA_windows auto-extracts the EventData fields (TaskName,
+  SubjectUserName, SubjectDomainName). TaskContent is pulled from _raw and decoded here
+  regardless. If TaskName/Subject* are empty, the TA isn't extracting - add rex on _raw.
+
+Comment syntax (triple-backtick) needs Splunk 8.1+. Strip comments if older.
+============================================================
+```
+index=winevents sourcetype=XmlWinEventLog source="XmlWinEventLog:Security" EventCode=4698
+
+``` --- TaskContent = the task-definition XML. Prefer a TA-extracted field, else pull from
+    _raw, then entity-decode (&lt; -> <, &gt; -> >, &quot; -> ", &amp; -> &) so tags and
+    paths compare as real XML. The decode is a no-op if the TA already decoded it. ```
+| rex field=_raw "(?s)Name='TaskContent'>(?<TaskContent_raw>.*?)</Data>"
+| eval TaskContent = coalesce(TaskContent, TaskContent_raw)
+| eval TaskContent = replace(replace(replace(replace(TaskContent,"&lt;","<"),"&gt;",">"),"&quot;","\""),"&amp;","&")
+
+``` --- who created it (domain\user) --- ```
+| eval SubjectAccount = coalesce(SubjectDomainName,"") . "\\" . coalesce(SubjectUserName,"")
+
+| rex field=TaskContent max_match=0 "<Command>(?<Command>[^<]*)</Command>"
+| rex field=TaskContent max_match=0 "<Arguments>(?<Arguments>[^<]*)</Arguments>"
+| rex field=TaskContent max_match=0 "<WorkingDirectory>(?<WorkingDirectory>[^<]*)</WorkingDirectory>"
+| rex field=TaskContent max_match=0 "<(?<TriggerTypes>\w+Trigger)>"
+| rex field=TaskContent max_match=0 "<ClassId>(?<GUID>[^<]*)</ClassId>"
+| eval TriggerTypes = mvjoin(TriggerTypes, ",")
+
+| eval CmdLine = lower(coalesce(mvjoin(Command," "),"") . " " . coalesce(mvjoin(Arguments," "),""))
+
+| eval susp_path      = if(match(TaskContent, "(?i)(Users.Public.|AppData.Local.Temp.|AppData.Roaming.|ProgramData.|Windows.Temp.|PerfLogs.|Downloads.)"), 1, 0)
+| eval susp_ext       = if(match(TaskContent, "(?i)\.(bat|cmd|com|hta|js|jse|lnk|ps1|scr|url|vbe|vbs|wsf)</Command>"), 1, 0)
+| eval susp_args      = if(match(CmdLine,     "(?i)(-noni|-w hidden|-windowstyle hidden|bypass|-enc|frombase64string|iex\(| iex |invoke-expression|downloadstring|downloadfile|mshta|rundll32|regsvr32)"), 1, 0)
+| eval susp_elevation = if(match(TaskContent, "(?i)(HighestAvailable|S-1-5-18|<UserId>SYSTEM|<UserId>LocalSystem)"), 1, 0)
+| eval susp_trigger   = if(match(TaskContent, "(?i)(<LogonTrigger|<BootTrigger)"), 1, 0)
+
+``` ------------------------------------------------------------
+    SEVERITY - weighted score (mirror of the KQL). args/ext/path = 2 (strong, standalone-
+    suspicious), elevation/trigger = 1 (each normal alone for admin tasks), +1 synergy when
+    a task both auto-starts AND runs elevated.
+    ------------------------------------------------------------ ```
+| eval Score = (susp_args*2) + (susp_ext*2) + (susp_path*2) + (susp_elevation*1) + (susp_trigger*1) + if(susp_elevation=1 AND susp_trigger=1, 1, 0)
+| eval Severity = case(Score>=5, "High", Score>=3, "Medium", Score>=2, "Informational", true(), "None")
+| where Score >= 2
+```--- DISPLAY NORMALISATION (runs AFTER scoring so it can't skew CmdLine/Score) ---
+    Optional tags that were absent come through as null; empty <Arguments></Arguments>
+    come through as "". Turn both into an explicit "(none)" so the analyst can tell.```
+| eval Command          = coalesce(Command, if(isnotnull(GUID), "COM:" . GUID, null()))
+| eval Command          = if(isnull(Command)          OR Command="",          "(none)", Command)
+| eval Arguments        = if(isnull(Arguments)        OR Arguments="",        "(none)", Arguments)
+| eval WorkingDirectory = if(isnull(WorkingDirectory) OR WorkingDirectory="", "(none)", WorkingDirectory)
+
+| table _time, host, SubjectAccount, TaskName, Severity, Score, Command, Arguments, WorkingDirectory, TriggerTypes, TaskContent ```TaskContent shows entire XML log, removing this makes the rule more readable but reduces wider picture of the alert.```
+| sort - Score, - _time
+
+```
+------------------------------------------------------------
+ANALYST TRIAGE & FOLLOW-UP
+------------------------------------------------------------
+Pivot fields from the alert: host, TaskName, GUID, SubjectAccount.
+
+STEP 1 - Triage the creation event itself
+  - Is SubjectAccount an expected admin/service account, or a standard user / suspicious account?
+  - Does Command/Arguments point at a staging path (Temp, Public, ProgramData, Downloads)?
+  - Does the task auto-start (TriggerTypes = Logon/Boot) AND run elevated (SYSTEM / HighestAvailable)?
+    Auto-start + elevated + staging path together is a strong persistence signal.
+
+STEP 2 - Scope: has the task been touched again after creation?
+  OPTION A - Correlate task lifecycle events for the same task
+             (4699 deleted / 4700 enabled / 4701 disabled / 4702 updated).
+             NOTE: run *history* (last run time / result) is NOT in the Security log - use Option B.
+
+    index=winevents sourcetype=XmlWinEventLog source="XmlWinEventLog:Security"
+        EventCode IN (4698,4699,4700,4701,4702) host="<host>" TaskName="<TaskName>"
+    | table _time, EventCode, TaskName, SubjectUserName, host
+    | sort _time
+
+  OPTION B - Live check on the host (RDP or PS remoting) for actual execution history:
+    B.1  Get-ScheduledTask -TaskName "<leaf name>" | Get-ScheduledTaskInfo
+           -> LastRunTime / LastTaskResult / NextRunTime
+    B.2  Get-WinEvent -LogName "Microsoft-Windows-TaskScheduler/Operational" |
+           Where-Object { $_.Message -match "<TaskName>" }
+           -> per-run start/stop/result history (event IDs 100/102/200/201)
+
+STEP 3 - Pull the full task definition for deeper analysis
+    index=winevents sourcetype=XmlWinEventLog source="XmlWinEventLog:Security"
+        EventCode=4698 host="<host>" TaskName="<TaskName>"
+    | table _time, SubjectUserName, TaskContent   ``` full XML: actions, triggers, principal ```
+
+STEP 4 - Decision
+  - Confirmed malicious -> isolate the device, capture the task XML + any binaries it references,
+    hunt the same TaskName / Command across other hosts, then begin DFIR procedures.
+  - Benign admin/automation -> add SubjectAccount + Command to the tuning allow-list (see FP notes).
+------------------------------------------------------------
+```

@@ -1,0 +1,167 @@
+// ============================================================
+// Detection: Persistence via schedule task creation
+// Technique: T1053.005- Schedule task creation
+// Tactic:    Persistence
+// Table:     SecurityEvent (Microsoft Sentinel — Windows Security log, EventID 4698 via AMA/MMA)
+// Author:    William Richardson
+// Date:      2026-07-07
+// ============================================================
+//
+// SCOPE — what this rule can and cannot see
+// -----------------------------------------
+// Rule only sees Windows Security EventID 4698 - Scheduled task creation.
+// Therefore it misses modifications to existing tasks (4702) and enabling/disabling of existing tasks (4700/4701).
+// Rule cannot detect suspicious grandchild processes/extensions should an attacker use a jump script/program.
+//
+// FIRING LOGIC (weighted score, not a combinatorial case() — see SEVERITY block)
+// ----------------------------------------------------------------------------
+//   High          = Score >= 5  (~3+ signals, or a strong pair plus elevated auto-start)
+//   Medium        = Score 3-4   (~any two signals, or elevated AND auto-start together)
+//   Informational = Score 2     (a single strong signal: staging path, script ext, or LOLBin args)
+//   elevation-only / trigger-only (Score 1) never fire on their own.
+//   Set the floor to Score >= 3 if you want to drop Informational entirely.
+//
+// FALSE POSITIVES / TUNING
+// ------------------------
+// - Legit admin/automation using IEX or Invoke-WebRequest will match (esp. Medium).
+// - Missing 4702 correlation - task modifications are a clear blind spot to this rule's effectiveness.
+
+
+
+let suspicious_path = dynamic([
+    '\\Users\\Public\\', '\\AppData\\Local\\Temp\\', '\\AppData\\Roaming\\',
+    '\\ProgramData\\', '\\Windows\\Temp\\', '\\PerfLogs\\', '\\Downloads\\'
+]);
+// Anchored with the closing </Command> tag so we match the file that the task
+// actually executes, not the same extension appearing inside an argument string.
+let suspicious_ext = dynamic([
+    '.bat</Command>', '.cmd</Command>', '.com</Command>', '.hta</Command>',
+    '.js</Command>', '.jse</Command>', '.lnk</Command>', '.ps1</Command>',
+    '.scr</Command>', '.url</Command>', '.vbe</Command>', '.vbs</Command>',
+    '.wsf</Command>'
+]);
+let suspicious_args = dynamic([
+    '-noni',                 // -NonInteractive
+    '-w hidden',             // -WindowStyle Hidden
+    '-windowstyle hidden',
+    'bypass',                // -ExecutionPolicy Bypass / -ep bypass / -exec bypass
+    '-enc',                  // -EncodedCommand
+    'frombase64string',
+    'iex(',                  // anchored so we don't match iexplore.exe
+    ' iex ',
+    'invoke-expression',
+    'downloadstring',
+    'downloadfile',
+    'mshta',
+    'rundll32',
+    'regsvr32'
+]);
+
+let suspicious_elevation = dynamic([
+    'HighestAvailable',  'S-1-5-18',       
+      '<UserId>SYSTEM', '<UserId>LocalSystem'
+]);
+let suspicious_trigger = dynamic([
+    '<LogonTrigger','<BootTrigger' 
+]);
+
+SecurityEvent
+| where EventID == 4698
+| extend TaskXml = parse_xml(TaskContent)
+| extend TriggerTypes = strcat_array(bag_keys(TaskXml.Task.Triggers), ",")
+| mv-expand kind=array ActionKV = TaskXml.Task.Actions
+| extend ActionType = tostring(ActionKV[0]), ActionDetail = ActionKV[1]
+// catch repeats of the SAME action type (e.g. two <Exec> blocks)
+| mv-expand ActionDetail
+| extend
+    Command          = tostring(ActionDetail.Command),
+    Arguments        = tostring(ActionDetail.Arguments),
+    WorkingDirectory = tostring(ActionDetail.WorkingDirectory),
+    GUID             = tostring(ActionDetail.Guid)
+
+// ------------------------------------------------------------
+// CONTENT MATCHING SIGNALS  (susp_* booleans)
+// ------------------------------------------------------------
+| extend Hay     = tolower(TaskContent)                              // whole task XML
+| extend CmdLine = tolower(strcat(Command, ' ', Arguments))         // this action's command line
+| mv-apply p = suspicious_path      to typeof(string) on (summarize susp_path      = countif(Hay     contains tolower(p)) > 0)
+| mv-apply e = suspicious_ext       to typeof(string) on (summarize susp_ext       = countif(Hay     contains tolower(e)) > 0)
+| mv-apply a = suspicious_args      to typeof(string) on (summarize susp_args      = countif(CmdLine contains tolower(a)) > 0)
+| mv-apply v = suspicious_elevation to typeof(string) on (summarize susp_elevation = countif(Hay     contains tolower(v)) > 0)
+| mv-apply t = suspicious_trigger   to typeof(string) on (summarize susp_trigger   = countif(Hay     contains tolower(t)) > 0)
+
+// ------------------------------------------------------------
+// SEVERITY — weighted score instead of a combinatorial case().
+// Every one of the 2^5 signal combinations gets a deterministic
+// score, so nothing falls through the cracks.
+//   args / ext / path = 2  (strong, standalone-suspicious signals)
+//   elevation / trigger = 1 (each normal on its own for admin tasks)
+//   +1 synergy when elevation AND trigger co-occur (auto-start AND elevated)
+// ------------------------------------------------------------
+| extend Score =
+      toint(susp_args)      * 2
+    + toint(susp_ext)       * 2
+    + toint(susp_path)      * 2
+    + toint(susp_elevation) * 1
+    + toint(susp_trigger)   * 1
+    + toint(susp_elevation and susp_trigger) * 1      // synergy bonus
+| extend Severity = case(
+      Score >= 5, "High",
+      Score >= 3, "Medium",
+      Score >= 2, "Informational",
+                  "None")
+| where Score >= 2      // firing floor; raise to >= 3 to drop Informational
+| project
+    TimeGenerated,
+    Computer,                // which host the task was created on
+    SubjectAccount,          // who created it (domain\user)
+    TaskName,                // task path/name — pivot for the 4702 follow-up below
+    Severity,
+    Score,
+    Command,
+    Arguments,
+    WorkingDirectory,
+    TriggerTypes,            // auto-start mechanism(s) on the task (Logon/Boot/etc.)
+    GUID
+| sort by Score desc, TimeGenerated desc
+
+// ------------------------------------------------------------
+// ANALYST TRIAGE & FOLLOW-UP
+// ------------------------------------------------------------
+// Pivot fields from the alert: Computer, TaskName, GUID, SubjectAccount.
+//
+// STEP 1 - Triage the creation event itself
+//   - Is SubjectAccount an expected admin/service account, or a standard user / suspicious account?
+//   - Does Command/Arguments point at a staging path (Temp, Public, ProgramData, Downloads)?
+//   - Does the task auto-start (TriggerTypes = Logon/Boot) AND run elevated (SYSTEM / HighestAvailable)?
+//     Auto-start + elevated + staging path together is a strong persistence signal.
+//
+// STEP 2 - Scope: has the task been touched again after creation?
+//   OPTION A - Correlate task lifecycle events for the same task in SecurityEvent
+//              (4699 deleted / 4700 enabled / 4701 disabled / 4702 updated).
+//              NOTE: run *history* (last run time / result) is NOT in SecurityEvent - use Option B.
+//
+//     SecurityEvent
+//     | where Computer == "<Computer>"
+//     | where EventID in (4698, 4699, 4700, 4701, 4702)
+//     | where TaskName == "<TaskName>"          // or:  TaskContent has "<GUID>"
+//     | project TimeGenerated, EventID, Activity, TaskName, SubjectAccount
+//     | sort by TimeGenerated asc
+//
+//   OPTION B - Live check on the host (RDP or PS remoting) for actual execution history:
+//     B.1  Get-ScheduledTask -TaskName "<leaf name>" | Get-ScheduledTaskInfo
+//            -> LastRunTime / LastTaskResult / NextRunTime
+//     B.2  Get-WinEvent -LogName "Microsoft-Windows-TaskScheduler/Operational" |
+//            Where-Object { $_.Message -match "<TaskName>" }
+//            -> per-run start/stop/result history (event IDs 100/102/200/201)
+//
+// STEP 3 - Pull the full task definition for deeper analysis
+//     SecurityEvent
+//     | where Computer == "<Computer>" and EventID == 4698 and TaskName == "<TaskName>"
+//     | project TimeGenerated, SubjectAccount, TaskContent   // full XML: actions, triggers, principal
+//
+// STEP 4 - Decision
+//   - Confirmed malicious -> isolate the device, capture the task XML + any binaries it references,
+//     hunt the same TaskName / Command across other hosts, then begin DFIR procedures.
+//   - Benign admin/automation -> add SubjectAccount + Command to the tuning allow-list (see FP notes).
+// ------------------------------------------------------------

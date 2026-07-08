@@ -104,10 +104,3 @@ detection:
   condition: selection_event and ((selection_susp_path or selection_susp_ext) or selection_susp_args or (selection_elevation and selection_trigger))
 
 
-# Notes for SPl conversion:
-# 1. For analysts help I want to clearly show in my final SPL the description of the task the attacker created
-# 2. I want to show the path of the task that was created, the full arguments and start in (location where to run from) too.
-# Reason being this will help analysts determine whether the task is malicious or admin activity,
-# 3. I want to show the user that created the task, and the user that is running the task (if different) so analysts can determine if this is a privilege escalation attempt or not.
-# 4. I want to show schedule details ie the trigger configured.
-# With all of this the analyst should be able to determine if this is a malicious scheduled task creation or not.
