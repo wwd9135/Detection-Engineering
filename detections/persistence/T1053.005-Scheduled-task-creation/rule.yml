@@ -1,11 +1,13 @@
-# limitations- field mapping isn't perfect as arguments, path and trigger the three selection paths used here come from one field called TaskContent. This is a limitation of the field mapping in the detection engine. The field mapping is not perfect and may not capture all relevant information for scheduled task creation events.
-# When converted to SPL/ KQL or your chosen SIEM query language, the field mapping will be more accurate and will allow for better detection of scheduled task creation events.
-# Then you'd pick into the XML and parse out the relevant fields for arguments, path and trigger. This will allow you to create more accurate detections for scheduled task creation events.
+# Limitation: Sigma has no XML parsing, so path, extension, arguments and trigger
+# are all matched against the single TaskContent field (the raw task-definition
+# XML). The SPL/KQL ports parse the XML out into per-action fields and match
+# those instead - treat this file as the portable base, not the sharpest
+# version of the rule.
 #
-# NB (chainsaw gotcha): do NOT use runs of 3+ dashes '---' inside comments here.
-# Chainsaw's Sigma loader treats a '---' dash-run as a YAML document separator
-# and silently drops the rule ("No valid detection rules were found"). The '===='
-# separators below are cosmetic and safe; '----' is not.
+# NB (chainsaw gotcha): no runs of 3+ dashes '---' inside comments in this file.
+# Chainsaw's Sigma loader treats a dash-run as a YAML document separator and
+# silently drops the rule ("No valid detection rules were found"). The '===='
+# separators below are safe; '----' is not.
 
 title: Scheduled Task Creation
 id: b7e6a2c1-4f3d-4c8a-9e2b-1a5d6f7c8e90
@@ -50,7 +52,6 @@ detection:
   #     of the <Command> tag so we match the executable being run, not the same
   #     extension mentioned inside an argument string.
   selection_susp_ext:
-    selection_susp_ext:
     TaskContent|contains:
       - '.ps1</Command>'
       - '.vbs</Command>'
@@ -98,9 +99,6 @@ detection:
       - '<BootTrigger'         # fires at system startup
       - '<LogonTrigger'        # fires at user logon
 
-  # NB: 'condition' MUST be indented inside the 'detection:' block. At column 0
-  # it becomes a top-level key and Sigma reports "must contain at least one
-  # condition" because the detection block then has no condition of its own.
   condition: selection_event and ((selection_susp_path or selection_susp_ext) or selection_susp_args or (selection_elevation and selection_trigger))
 
 

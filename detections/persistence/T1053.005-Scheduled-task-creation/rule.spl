@@ -13,30 +13,30 @@ SCOPE - what this rule can and cannot see
   extensions if the task launches a jump script/program.
 
 FIRING LOGIC (weighted score - see SEVERITY block)
-  High          = Score >= 5   (3+ signals, or a strong pair plus elevated auto-start)
-  Medium        = Score 3-4     (any two signals, or elevated AND auto-start together)
-  Informational = Score 2       (a single strong signal: staging path, script ext, or LOLBin args)
+  High          = Score >= 4   (two strong signals, or a strong signal plus elevated auto-start)
+  Medium        = Score 3      (a strong signal plus one weak, or elevated AND auto-start)
+  Informational = Score 2      (a single strong signal: staging path, script ext, LOLBin args,
+                                encoded command, or registry-staged/fileless)
   elevation-only / trigger-only (Score 1) never fire on their own.
-  Raise the floor to Score >= 3 to drop Informational entirely.
+  Raise the floor to Score >= 3 to drop Informational; raise the High cut to >= 5 if a plain
+  two-strong-signal task (e.g. staging path + script ext) is too aggressive as High.
 
-WHY ONE ROW PER TASK (answers the old "group by GUID" TODO):
-  Each 4698 is a SINGLE Splunk event carrying the whole task XML, so all five signals are
-  scored on that one event - no mvexpand, no duplicate flag rows to recombine. Multiple
-  <Exec> blocks in one task simply become multivalue Command/Arguments fields.
+STRONG SIGNALS (weight 2): susp_path, susp_ext, susp_args, susp_encoded, susp_fileless.
+WEAK SIGNALS   (weight 1): susp_elevation, susp_trigger (+1 synergy when BOTH are present).
 
 FALSE POSITIVES / TUNING
-  - Legit admin/automation using IEX or Invoke-WebRequest will match (esp. Medium).
+  - Legit admin/automation using IEX, Invoke-WebRequest, or -EncodedCommand will match.
+  - Time/Calendar triggers are deliberately NOT scored (far too common for benign tasks) -
+    time-based persistence is caught only via the command-line signals, not the trigger.
   - Missing 4702 correlation - task modifications are a clear blind spot.
 
-REGEX ESCAPING (the #1 SPL gotcha): if a match() returns nothing, your Splunk version
-  wants doubled backslashes - e.g. replace \. with \\. . The path patterns below use "."
-  as a stand-in for the "\" path separator ON PURPOSE, to sidestep backslash escaping.
+REGEX ESCAPING (the #1 SPL gotcha): Splunk collapses "\\" to "\" inside a match() string,
+  and a "\" immediately before ")" escapes the paren -> "missing closing parenthesis". Avoid
+  trailing backslashes inside groups; the patterns below use path syntaxes that need none.
 
 TA ASSUMPTION: assumes Splunk_TA_windows auto-extracts the EventData fields (TaskName,
   SubjectUserName, SubjectDomainName). TaskContent is pulled from _raw and decoded here
   regardless. If TaskName/Subject* are empty, the TA isn't extracting - add rex on _raw.
-
-Comment syntax (triple-backtick) needs Splunk 8.1+. Strip comments if older.
 ============================================================
 ```
 index=winevents sourcetype=XmlWinEventLog source="XmlWinEventLog:Security" EventCode=4698
@@ -51,6 +51,10 @@ index=winevents sourcetype=XmlWinEventLog source="XmlWinEventLog:Security" Event
 ``` --- who created it (domain\user) --- ```
 | eval SubjectAccount = coalesce(SubjectDomainName,"") . "\\" . coalesce(SubjectUserName,"")
 
+``` --- per-action fields (multivalue if the task has >1 <Exec> block); triggers; COM GUID.
+    <Command> is the only mandatory child of <Exec>; <Arguments>/<WorkingDirectory> are
+    OPTIONAL, so a blank there is a genuinely empty field, not a broken mapping (the display
+    normalisation near the end turns those into "(none)"). ```
 | rex field=TaskContent max_match=0 "<Command>(?<Command>[^<]*)</Command>"
 | rex field=TaskContent max_match=0 "<Arguments>(?<Arguments>[^<]*)</Arguments>"
 | rex field=TaskContent max_match=0 "<WorkingDirectory>(?<WorkingDirectory>[^<]*)</WorkingDirectory>"
@@ -60,29 +64,56 @@ index=winevents sourcetype=XmlWinEventLog source="XmlWinEventLog:Security" Event
 
 | eval CmdLine = lower(coalesce(mvjoin(Command," "),"") . " " . coalesce(mvjoin(Arguments," "),""))
 
+``` --- SIGNALS ------------------------------------------------------------------------- ```
 | eval susp_path      = if(match(TaskContent, "(?i)(Users.Public.|AppData.Local.Temp.|AppData.Roaming.|ProgramData.|Windows.Temp.|PerfLogs.|Downloads.)"), 1, 0)
 | eval susp_ext       = if(match(TaskContent, "(?i)\.(bat|cmd|com|hta|js|jse|lnk|ps1|scr|url|vbe|vbs|wsf)</Command>"), 1, 0)
-| eval susp_args      = if(match(CmdLine,     "(?i)(-noni|-w hidden|-windowstyle hidden|bypass|-enc|frombase64string|iex\(| iex |invoke-expression|downloadstring|downloadfile|mshta|rundll32|regsvr32)"), 1, 0)
+| eval susp_args      = if(match(CmdLine,     "(?i)(-noni|-w hidden|-windowstyle hidden|bypass|frombase64string|iex\(| iex |invoke-expression|downloadstring|downloadfile|mshta|rundll32|regsvr32)"), 1, 0)
+
+``` susp_encoded: PowerShell EncodedCommand payload. Matches a -e / -ec / -enc / -encodedcommand
+    switch immediately followed by a base64 blob (>=12 chars). Requiring the blob is the FP
+    guard - it will NOT trip on "-ExecutionPolicy Unrestricted" or other -e* switches that
+    aren't followed by base64. This is why WinDiagCheck1 (-nop -w hidden -enc <blob>) now
+    scores as a real alert: susp_args fires on "-w hidden" AND susp_encoded fires on the
+    encoded blob = two independent strong signals. -enc was moved here out of susp_args so
+    the encoded command is counted once, cleanly, rather than double-scored. ```
+| eval susp_encoded   = if(match(CmdLine, "(?i)-e(c|nc|ncodedcommand)?[ ]+[a-z0-9+/=]{12,}"), 1, 0)
+
 | eval susp_elevation = if(match(TaskContent, "(?i)(HighestAvailable|S-1-5-18|<UserId>SYSTEM|<UserId>LocalSystem)"), 1, 0)
 | eval susp_trigger   = if(match(TaskContent, "(?i)(<LogonTrigger|<BootTrigger)"), 1, 0)
 
+``` susp_fileless: registry-staged / fileless payload. Fires only when the action BOTH reads a
+    value out of the registry (Get-ItemProperty / Get-ItemPropertyValue / reg query, or a bare
+    HKCU:/HKLM: path) AND decodes-or-executes it (FromBase64String / IEX / Invoke-Expression /
+    GetString / decompress). Requiring both halves keeps FPs down - a task that merely reads the
+    registry, or merely decodes a string, does not trip it. No trailing "\\" inside the groups on
+    purpose (see REGEX ESCAPING note in the header). ```
+| eval susp_fileless  = if(match(CmdLine, "(?i)(get-itemproperty|get-itempropertyvalue|reg(\.exe)? query|hkcu:|hklm:|hkey_)")
+                          AND match(CmdLine, "(?i)(frombase64string|iex\(| iex |invoke-expression|::getstring|decompress)"), 1, 0)
+
 ``` ------------------------------------------------------------
-    SEVERITY - weighted score (mirror of the KQL). args/ext/path = 2 (strong, standalone-
-    suspicious), elevation/trigger = 1 (each normal alone for admin tasks), +1 synergy when
-    a task both auto-starts AND runs elevated.
+    SEVERITY - weighted score (mirror of the KQL). Five strong signals = 2 each
+    (args / ext / path / encoded / fileless), elevation/trigger = 1 each (normal alone for
+    admin tasks), +1 synergy when a task both auto-starts AND runs elevated.
     ------------------------------------------------------------ ```
-| eval Score = (susp_args*2) + (susp_ext*2) + (susp_path*2) + (susp_elevation*1) + (susp_trigger*1) + if(susp_elevation=1 AND susp_trigger=1, 1, 0)
-| eval Severity = case(Score>=5, "High", Score>=3, "Medium", Score>=2, "Informational", true(), "None")
+| eval Score = (susp_args*2) + (susp_ext*2) + (susp_path*2) + (susp_encoded*2) + (susp_fileless*2) + (susp_elevation*1) + (susp_trigger*1) + if(susp_elevation=1 AND susp_trigger=1, 1, 0)
+| eval Severity = case(Score>=4, "High", Score>=3, "Medium", Score>=2, "Informational", true(), "None")
+
+``` firing floor; raise to >= 3 to drop Informational ```
 | where Score >= 2
-```--- DISPLAY NORMALISATION (runs AFTER scoring so it can't skew CmdLine/Score) ---
-    Optional tags that were absent come through as null; empty <Arguments></Arguments>
-    come through as "". Turn both into an explicit "(none)" so the analyst can tell.```
+
+``` --- DISPLAY NORMALISATION (runs AFTER scoring so it can't skew CmdLine/Score) ---
+    Optional tags that were absent come through as null; empty <Arguments></Arguments> come
+    through as "". Turn both into an explicit "(none)" so a blank cell can never be mistaken
+    for a broken mapping. COM-handler tasks have no <Command> - surface the COM object as
+    COM:<GUID> instead of a blank. ```
 | eval Command          = coalesce(Command, if(isnotnull(GUID), "COM:" . GUID, null()))
 | eval Command          = if(isnull(Command)          OR Command="",          "(none)", Command)
 | eval Arguments        = if(isnull(Arguments)        OR Arguments="",        "(none)", Arguments)
 | eval WorkingDirectory = if(isnull(WorkingDirectory) OR WorkingDirectory="", "(none)", WorkingDirectory)
 
-| table _time, host, SubjectAccount, TaskName, Severity, Score, Command, Arguments, WorkingDirectory, TriggerTypes, TaskContent ```TaskContent shows entire XML log, removing this makes the rule more readable but reduces wider picture of the alert.```
+``` TaskContent (full XML) is kept in the table for wider context; drop it for a more readable
+    alert, at the cost of losing the actions/triggers/principal at a glance. ```
+| table _time, host, SubjectAccount, TaskName, Severity, Score, Command, Arguments, WorkingDirectory, TriggerTypes, TaskContent
 | sort - Score, - _time
 
 ```
@@ -94,6 +125,8 @@ Pivot fields from the alert: host, TaskName, GUID, SubjectAccount.
 STEP 1 - Triage the creation event itself
   - Is SubjectAccount an expected admin/service account, or a standard user / suspicious account?
   - Does Command/Arguments point at a staging path (Temp, Public, ProgramData, Downloads)?
+  - Is the payload an encoded command (-enc <base64>) or pulled from the registry? Decode it:
+      powershell -c "[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('<blob>'))"
   - Does the task auto-start (TriggerTypes = Logon/Boot) AND run elevated (SYSTEM / HighestAvailable)?
     Auto-start + elevated + staging path together is a strong persistence signal.
 
@@ -117,7 +150,7 @@ STEP 2 - Scope: has the task been touched again after creation?
 STEP 3 - Pull the full task definition for deeper analysis
     index=winevents sourcetype=XmlWinEventLog source="XmlWinEventLog:Security"
         EventCode=4698 host="<host>" TaskName="<TaskName>"
-    | table _time, SubjectUserName, TaskContent   ``` full XML: actions, triggers, principal ```
+    | table _time, SubjectUserName, TaskContent   -- full XML: actions, triggers, principal
 
 STEP 4 - Decision
   - Confirmed malicious -> isolate the device, capture the task XML + any binaries it references,

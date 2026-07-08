@@ -1,6 +1,6 @@
 // ============================================================
-// Detection: Persistence via schedule task creation
-// Technique: T1053.005- Schedule task creation
+// Detection: Persistence via scheduled task creation
+// Technique: T1053.005 - Scheduled Task/Job: Scheduled Task
 // Tactic:    Persistence
 // Table:     SecurityEvent (Microsoft Sentinel — Windows Security log, EventID 4698 via AMA/MMA)
 // Author:    William Richardson
