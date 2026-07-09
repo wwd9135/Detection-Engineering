@@ -1,0 +1,23 @@
+title: Suspicious binary execution
+id: e9437397-4604-453b-92a3-feab79e44a2c
+status: experimental
+description: |
+  Detects a file with a suspicious or executable extension being created in the
+  per-user or all-users Startup folder via Sysmon Event ID 11 (FileCreate).
+  Anything placed in these folders is launched automatically at user logon,
+  making them a common persistence location. Adversaries drop scripts,
+  executables, or shortcuts here so their payload runs on every logon without
+  needing a service, scheduled task, or registry Run key.
+references:
+  - https://attack.mitre.org/techniques/T1218/
+  - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1218/T1218.md
+author: William Richardson
+date: 2026-07-09
+modified: 2026-07-09
+tags:
+  - attack.defence_evasion
+  - attack.t1218
+logsource:
+  product: windows
+  category: file_event
+detection:

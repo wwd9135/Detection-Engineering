@@ -21,10 +21,6 @@ logsource:
   product: windows
   category: file_event
 detection:
-  # WHERE: per-user and all-users Startup folders. This single substring
-  # covers both — the per-user path ends ...\AppData\Roaming\Microsoft\Windows\
-  # Start Menu\Programs\Startup\ and the all-users path ends ...\ProgramData\
-  # Microsoft\Windows\Start Menu\Programs\Startup\ — both share this tail.
   selection_path:
     TargetFilename|contains: '\Start Menu\Programs\Startup\'
   # WHAT: extensions worth surfacing. These WIDEN the catch, so they are

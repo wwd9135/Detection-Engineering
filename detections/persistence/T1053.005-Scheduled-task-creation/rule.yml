@@ -33,7 +33,6 @@ logsource:
   service: security
 level: medium
 detection:
-  # ANDed into every branch so the rule only ever inspects task-creation events.
   selection_event:
     EventID: 4698
 

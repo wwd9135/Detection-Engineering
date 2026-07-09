@@ -12,6 +12,7 @@ Early-career security engineer building and validating detections in Microsoft S
 | Persistence | T1547.001 (2) | Startup folder used to launch program/ script on startup.
 | Persistence | T1053.005 | Scheduled task creation for priv esc/ persistence.
 | Execution | T1059.001 | PowerShell execution (Downloads).
+| Defence evasion | T1218.005/10/11 | Suspicious binary execution |
 ---
 
 ## Repo Navigation
