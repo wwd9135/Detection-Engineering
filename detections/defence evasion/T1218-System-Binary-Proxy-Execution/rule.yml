@@ -1,23 +1,172 @@
-title: Suspicious binary execution
+title: Suspicious System Binary Proxy Execution via Rundll32, Mshta or Regsvr32
 id: e9437397-4604-453b-92a3-feab79e44a2c
 status: experimental
 description: |
-  Detects a file with a suspicious or executable extension being created in the
-  per-user or all-users Startup folder via Sysmon Event ID 11 (FileCreate).
-  Anything placed in these folders is launched automatically at user logon,
-  making them a common persistence location. Adversaries drop scripts,
-  executables, or shortcuts here so their payload runs on every logon without
-  needing a service, scheduled task, or registry Run key.
+  Detects three sub-techniques of T1218 System Binary Proxy Execution:
+  Mshta (T1218.005), Regsvr32 (T1218.010) and Rundll32 (T1218.011).
+  These trusted, signed system binaries are abused to proxy the execution of
+  malicious code past application control and signature-based defences.
+  The rule looks for suspicious command-line arguments, suspicious parent/child
+  process relationships, and well-known abuse patterns such as comsvcs.dll
+  MiniDump credential dumping and the regsvr32 "Squiblydoo" remote scriptlet.
+  Intended to be correlated with the companion network_connection rule below
+  into a single KQL rule (rule.kql) with risk scoring.
 references:
   - https://attack.mitre.org/techniques/T1218/
+  - https://attack.mitre.org/techniques/T1218/005/
+  - https://attack.mitre.org/techniques/T1218/010/
+  - https://attack.mitre.org/techniques/T1218/011/
   - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1218/T1218.md
+  - https://lolbas-project.github.io/lolbas/Binaries/Regsvr32/
 author: William Richardson
 date: 2026-07-09
-modified: 2026-07-09
+modified: 2026-07-10
 tags:
-  - attack.defence_evasion
+  # ATT&CK restructure: Defense Evasion split into 'stealth' / 'defense-impairment';
+  # T1218 maps to 'stealth' in the taxonomy sigma check validates against.
+  - attack.stealth
   - attack.t1218
+  - attack.t1218.005
+  - attack.t1218.010
+  - attack.t1218.011
 logsource:
   product: windows
-  category: file_event
+  category: process_creation
 detection:
+  # ==== Category 1 - Rundll32 (T1218.011) =====================
+  # Inline script engines and DLL exports that proxy execution of arbitrary code.
+  susp_rundll32_script_abuse:
+    Image|endswith: '\rundll32.exe'
+    CommandLine|contains:
+      - 'javascript:'
+      - 'vbscript:'
+      - 'mshtml,RunHTMLApplication'
+      - 'mshtml,ShowHTMLDialog'
+      - 'shell32.dll,ShellExec_RunDLL'
+      - 'zipfldr.dll,RouteTheCall'
+      - 'url.dll,OpenURL'
+      - 'url.dll,FileProtocolHandler'
+      - 'advpack.dll,LaunchINFSection'
+      - 'setupapi.dll,InstallHinfSection'
+      - 'pcwutl.dll,LaunchApplication'
+  # LSASS memory dump via the comsvcs.dll MiniDump export (named or by ordinal).
+  # Regex instead of contains: the documented form has a space after the comma
+  # ("comsvcs.dll, MiniDump <pid>"), and "#+24" evades a plain '#24' match.
+  susp_rundll32_credential_dumping:
+    Image|endswith: '\rundll32.exe'
+    CommandLine|re: '(?i)comsvcs(\.dll)?\s*,\s*(#\+?24|minidump)'
+  # rundll32 spawned by another proxy binary, a document handler, or a
+  # shell/script host. Shells are common legitimate parents — this selection
+  # is only scored in combination with path obfuscation below.
+  susp_rundll32_parent:
+    Image|endswith: '\rundll32.exe'
+    ParentImage|endswith:
+      - '\mshta.exe'
+      - '\regsvr32.exe'
+      - '\outlook.exe'
+      - '\winword.exe'
+      - '\excel.exe'
+      - '\cmd.exe'
+      - '\powershell.exe'
+      - '\pwsh.exe'
+      - '\wscript.exe'
+      - '\cscript.exe'
+  # DLLs loaded from user-writable paths, or export called by ordinal.
+  # Noisy on its own — only scored in combination with a suspicious parent.
+  susp_rundll32_path_obfuscation:
+    Image|endswith: '\rundll32.exe'
+    CommandLine|contains:
+      - '.dll,#'   # execution by ordinal instead of named export
+      - '%TEMP%'
+      - '%APPDATA%'
+      - '%PUBLIC%'
+      - '\Users\Public\'
+      - '\AppData\Local\Temp\'
+      - '\Downloads\'
+
+  # ==== Category 2 - Mshta (T1218.005) ========================
+  # Office apps or browsers spawning mshta — typical phishing delivery of an .hta payload.
+  susp_mshta_parent:
+    Image|endswith: '\mshta.exe'
+    ParentImage|endswith:
+      - '\outlook.exe'
+      - '\winword.exe'
+      - '\excel.exe'
+      - '\powerpnt.exe'
+      - '\chrome.exe'
+      - '\msedge.exe'
+      - '\firefox.exe'
+  # mshta spawning a shell or another proxy binary — the payload stage.
+  susp_mshta_child:
+    ParentImage|endswith: '\mshta.exe'
+    Image|endswith:
+      - '\cmd.exe'
+      - '\powershell.exe'
+      - '\pwsh.exe'
+      - '\rundll32.exe'
+      - '\regsvr32.exe'
+      - '\wscript.exe'
+      - '\cscript.exe'
+      - '\certutil.exe'
+      - '\bitsadmin.exe'
+  # Inline script, remote payload or encoded content passed directly on the command line.
+  susp_mshta_cli:
+    Image|endswith: '\mshta.exe'
+    CommandLine|contains:
+      - 'javascript:'
+      - 'vbscript:'
+      - 'http://'
+      - 'https://'
+      - 'GetObject('
+      - 'ActiveXObject'
+      - 'CreateObject('
+      - '.Run('
+      - ' -enc'   # embedded 'powershell -enc' — space-anchored so paths like '\x-encoder\' don't match
+      - 'FromBase64String'
+  # mshta invoked with a bare COM class ID ({GUID}) instead of a file path.
+  susp_mshta_clsid:
+    Image|endswith: '\mshta.exe'
+    CommandLine|re: '\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}'
+
+  # ==== Category 3 - Regsvr32 (T1218.010) =====================
+  # regsvr32 spawned by a document handler, browser, script host or another proxy binary.
+  susp_regsvr32_parent:
+    Image|endswith: '\regsvr32.exe'
+    ParentImage|endswith:
+      - '\rundll32.exe'
+      - '\mshta.exe'
+      - '\outlook.exe'
+      - '\winword.exe'
+      - '\excel.exe'
+      - '\chrome.exe'
+      - '\msedge.exe'
+      - '\firefox.exe'
+      - '\wscript.exe'
+      - '\cscript.exe'
+  # Squiblydoo (Casey Smith/@subTee): regsvr32 /s /n /u /i:http://host/payload.sct scrobj.dll.
+  # A remote /i: URL is near-zero-FP — legitimate DLL registration never references a URL.
+  susp_regsvr32_squiblydoo:
+    Image|endswith: '\regsvr32.exe'
+    CommandLine|contains:
+      - '/i:http'
+      - '/i:ftp'
+      - 'scrobj.dll'
+      - '.sct'
+
+  # One branch per sub-technique. Finer-grained risk scoring is deferred to the
+  # KQL correlation layer built from this rule plus the network rule below.
+  condition: susp_rundll32_script_abuse or susp_rundll32_credential_dumping or (susp_rundll32_parent and susp_rundll32_path_obfuscation) or 1 of susp_mshta_* or susp_regsvr32_parent or susp_regsvr32_squiblydoo
+falsepositives:
+  # regsvr32.exe
+  - Legitimate COM/DLL registration by installers launched from script hosts (local file path, no /i URL)
+  # mshta.exe
+  - Legacy internal HTA-based admin tools and line-of-business applications
+  # rundll32.exe
+  - Installers running INF install sections via advpack.dll/setupapi.dll LaunchINFSection
+  - Software updaters invoking vendor DLLs staged in %TEMP% or %APPDATA%
+level: high
+---
+# New networks rule to be correlated on above rule post KQL conversion.
+log source:
+  product: windows
+  category: network_connection

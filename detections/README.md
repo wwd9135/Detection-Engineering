@@ -24,6 +24,7 @@ See [docs/detection-template.md](../docs/detection-template.md) for the ADS READ
 | Persistence | T1547 | .001 | [Startup Folder Persistence](persistence/T1547.001-Startup-Folder/README.md) | High | Experimental |
 | Persistence | T1053 | .005 | [Scheduled task creation](persistence/T1053.005-Scheduled-task-creation/README.md) | High | Experimental |
 | Execution   | T1059 | .001 | [PowerShell execution](execution/T1059.001-PowerShell-Execution/README.md) | High | Stable
+| Defence Evasion | T1218.005/10/11 | [Suspicious binary execution] ()
 ---
 
 ## Adding a New Detection

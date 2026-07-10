@@ -108,13 +108,19 @@ Using the following tests to check the yml alert still works after conversion to
 | Test | Creation method | Payload as-shipped | Exercises which criteria |
 | --- | --- | --- | --- |
 | #1 | schtasks.exe | `cmd.exe /c calc.exe` | LOLBin only (cmd.exe) — weak signal, no suspicious args |
-
+| #1 | 
 **Outcome**
 
-### Likely FP sources (to watch in tuning)
+### Likely FP sources
 
-<Claude to fill in>
+- Rundll32 — biggest FP source by far; huge legitimate baseline (Control Panel routing, printer mgmt, installers). Filter on DLL path outside System32/SysWOW64/Program  Files, not just presence of rundll32.
+- Regsvr32 — routine software install/uninstall (older ActiveX apps, Java, legacy Office). Watch for SCCM/Intune deployment bursts across many hosts at once.
+- Mshta — lower baseline, but legacy internal admin tools and older LOB installers still use HTA.
 
-## Blind spots & assumptions
+### Blind spots & assumptions
 
-- 
+- Assumes Sysmon is running and untampered — an attacker who kills/unloads it defeats the rule set entirely. Needs a companion check on Sysmon service state.
+- Command-line string matches (e.g. /i:http) are brittle against case/encoding obfuscation.
+- Detection keys on Image name/path — binary renaming bypasses it unless OriginalFileName is also checked.
+- "No network = lower severity" assumes live, single-stage execution — staged payloads may show zero network activity and land only in the medium bucket.
+- No coverage for remote-triggered execution (WMI/PsExec/WinRM) — only covers local/interactive chains.

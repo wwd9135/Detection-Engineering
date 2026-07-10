@@ -16,7 +16,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$OutputDir = "C:\Users\theri\ChainsawTestData"
+    [string]$OutputDir = ""
 )
 
 $ErrorActionPreference = 'Stop'
