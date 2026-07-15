@@ -165,8 +165,4 @@ falsepositives:
   - Installers running INF install sections via advpack.dll/setupapi.dll LaunchINFSection
   - Software updaters invoking vendor DLLs staged in %TEMP% or %APPDATA%
 level: high
----
-# New networks rule to be correlated on above rule post KQL conversion.
-log source:
-  product: windows
-  category: network_connection
+
