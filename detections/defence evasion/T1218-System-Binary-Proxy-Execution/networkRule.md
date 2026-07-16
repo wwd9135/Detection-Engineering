@@ -34,3 +34,5 @@ tags:
 log source:
   product: windows
   category: network_connection
+  detection:
+   
