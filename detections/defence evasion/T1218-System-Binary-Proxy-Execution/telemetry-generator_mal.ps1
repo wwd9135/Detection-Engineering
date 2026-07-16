@@ -120,16 +120,9 @@ $tests = @(
     Trigger  = { Start-Process rundll32.exe -ArgumentList "$($env:SystemRoot)\System32\comsvcs.dll, #+24",'99999',(Join-Path $LabDir 'nul.dmp'),'full' }
     Cleanup  = { Remove-Item (Join-Path $LabDir 'nul.dmp') -Force -ErrorAction SilentlyContinue }
     },
-    @{
-    Name     = "mal_rundll32_parent"
-    Category = "malicious"
-    # (susp_rundll32_parent AND susp_rundll32_path_obfuscation) -- neither fires alone.
-    # cmd is the suspicious parent; \Users\Public\ + ',#1' (ordinal) is the path signal.
-    # INERT: lab_proxy.dll does not exist, so rundll32 loads nothing -- only the command
-    # line matters. No DLL is staged, so there is nothing for Defender to scan.
-    Trigger  = { Start-Process cmd.exe -ArgumentList '/c','rundll32.exe C:\Users\Public\lab_proxy.dll,#1' }
-    Cleanup  = {}
-    },
+ # NB: mal_rundll32_parent (cmd -> rundll32 \Users\Public\...dll,#1) was dropped -- Defender's
+ # behavior monitor flags that exact ordinal-load-from-user-path pattern as Behavior:Win32/RunDllExec.SA
+ # (the same signal the rule targets), which a path exclusion can't suppress. See validation.md.
  # ----------------- mshta.exe (T1218.005) ------------------------------------
     @{
     Name     = "mal_mshta_clsid"

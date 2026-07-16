@@ -48,7 +48,7 @@ Every trigger is **inert**: it lands the command-line / parent-child signal the 
 | T1218.010 | Malicious | mal_regsvr32_suspicious_url | regsvr32 loading a **remote** scriptlet URL (`/i:ftp` + `scrobj.dll` + `.sct`) |
 | T1218.011 | Malicious | mal_rundll32_script_abuse | rundll32 proxying execution via the shell32 `ShellExec_RunDLL` export |
 | T1218.011 | Malicious | mal_rundll32_credential_dumping | rundll32 referencing the comsvcs credential-dump export by ordinal + invalid PID (inert) |
-| T1218.011 | Malicious | mal_rundll32_parent | cmd-spawned rundll32 loading a DLL by ordinal from `\Users\Public\` (parent + path-obfuscation combo) |
+| T1218.011 | Malicious | ~~mal_rundll32_parent~~ | **Dropped** — `cmd → rundll32 \Users\Public\…dll,#1` is flagged by Defender's behavior monitor as `Behavior:Win32/RunDllExec.SA` (not a content/AMSI block, so a path exclusion can't suppress it). The `susp_rundll32_parent + path_obfuscation` branch now has no dedicated fixture. |
 | T1218.005 | Benign | benign_mshta_local_html | mshta opening a local `.hta` by plain file path (self-closes) |
 | T1218.005 | Benign | benign_mshta_signed_html | mshta opening a local `.hta` by plain file path (self-closes) |
 | T1218.005 | Benign | benign_mshta_system_html | mshta opening a local `.hta` by plain file path (self-closes) |
