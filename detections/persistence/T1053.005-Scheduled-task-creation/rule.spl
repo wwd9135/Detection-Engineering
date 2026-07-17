@@ -30,10 +30,6 @@ FALSE POSITIVES / TUNING
     time-based persistence is caught only via the command-line signals, not the trigger.
   - Missing 4702 correlation - task modifications are a clear blind spot.
 
-REGEX ESCAPING (the #1 SPL gotcha): Splunk collapses "\\" to "\" inside a match() string,
-  and a "\" immediately before ")" escapes the paren -> "missing closing parenthesis". Avoid
-  trailing backslashes inside groups; the patterns below use path syntaxes that need none.
-
 TA ASSUMPTION: assumes Splunk_TA_windows auto-extracts the EventData fields (TaskName,
   SubjectUserName, SubjectDomainName). TaskContent is pulled from _raw and decoded here
   regardless. If TaskName/Subject* are empty, the TA isn't extracting - add rex on _raw.
@@ -69,24 +65,13 @@ index=winevents sourcetype=XmlWinEventLog source="XmlWinEventLog:Security" Event
 | eval susp_ext       = if(match(TaskContent, "(?i)\.(bat|cmd|com|hta|js|jse|lnk|ps1|scr|url|vbe|vbs|wsf)</Command>"), 1, 0)
 | eval susp_args      = if(match(CmdLine,     "(?i)(-noni|-w hidden|-windowstyle hidden|bypass|frombase64string|iex\(| iex |invoke-expression|downloadstring|downloadfile|mshta|rundll32|regsvr32)"), 1, 0)
 
-``` susp_encoded: PowerShell EncodedCommand payload. Matches a -e / -ec / -enc / -encodedcommand
-    switch immediately followed by a base64 blob (>=12 chars). Requiring the blob is the FP
-    guard - it will NOT trip on "-ExecutionPolicy Unrestricted" or other -e* switches that
-    aren't followed by base64. This is why WinDiagCheck1 (-nop -w hidden -enc <blob>) now
-    scores as a real alert: susp_args fires on "-w hidden" AND susp_encoded fires on the
-    encoded blob = two independent strong signals. -enc was moved here out of susp_args so
-    the encoded command is counted once, cleanly, rather than double-scored. ```
 | eval susp_encoded   = if(match(CmdLine, "(?i)-e(c|nc|ncodedcommand)?[ ]+[a-z0-9+/=]{12,}"), 1, 0)
 
 | eval susp_elevation = if(match(TaskContent, "(?i)(HighestAvailable|S-1-5-18|<UserId>SYSTEM|<UserId>LocalSystem)"), 1, 0)
 | eval susp_trigger   = if(match(TaskContent, "(?i)(<LogonTrigger|<BootTrigger)"), 1, 0)
 
 ``` susp_fileless: registry-staged / fileless payload. Fires only when the action BOTH reads a
-    value out of the registry (Get-ItemProperty / Get-ItemPropertyValue / reg query, or a bare
-    HKCU:/HKLM: path) AND decodes-or-executes it (FromBase64String / IEX / Invoke-Expression /
-    GetString / decompress). Requiring both halves keeps FPs down - a task that merely reads the
-    registry, or merely decodes a string, does not trip it. No trailing "\\" inside the groups on
-    purpose (see REGEX ESCAPING note in the header). ```
+    value out of the registry AND decodes-or-executes it .```
 | eval susp_fileless  = if(match(CmdLine, "(?i)(get-itemproperty|get-itempropertyvalue|reg(\.exe)? query|hkcu:|hklm:|hkey_)")
                           AND match(CmdLine, "(?i)(frombase64string|iex\(| iex |invoke-expression|::getstring|decompress)"), 1, 0)
 
@@ -101,11 +86,7 @@ index=winevents sourcetype=XmlWinEventLog source="XmlWinEventLog:Security" Event
 ``` firing floor; raise to >= 3 to drop Informational ```
 | where Score >= 2
 
-``` --- DISPLAY NORMALISATION (runs AFTER scoring so it can't skew CmdLine/Score) ---
-    Optional tags that were absent come through as null; empty <Arguments></Arguments> come
-    through as "". Turn both into an explicit "(none)" so a blank cell can never be mistaken
-    for a broken mapping. COM-handler tasks have no <Command> - surface the COM object as
-    COM:<GUID> instead of a blank. ```
+``` --- DISPLAY NORMALISATION (runs AFTER scoring so it can't skew CmdLine/Score) ---```
 | eval Command          = coalesce(Command, if(isnotnull(GUID), "COM:" . GUID, null()))
 | eval Command          = if(isnull(Command)          OR Command="",          "(none)", Command)
 | eval Arguments        = if(isnull(Arguments)        OR Arguments="",        "(none)", Arguments)

@@ -71,13 +71,13 @@ Running the generator via `powershell.exe -File` (and ISE's F5 / editor auto-sca
 - the benign mshta `.hta` template (`<hta:application …/>` + `<script>window.close();</script>`) — the literal ClickFix delivery shape. **Fixed:** plain script-free HTML body (the rule keys on mshta's command line, not the `.hta` contents, so it is an identical test).
 - the squiblydoo `.sct` scriptlet's embedded `<script language="JScript">` block. **Fixed:** registration-only scriptlet, no script body (EID 1 fires at regsvr32 creation regardless of whether scrobj loads the file).
 
-Also de-literalised the encoded-exec tokens (`-enc`, base64, `FromBase64String`) by assembling them at runtime, and moved the attack-chain prose out of the `.ps1` header into this file. Net: the FP rate dropped from ~always-blocked to occasional. It is **probabilistic and cannot be driven to a hard zero by editing content** — the generator's whole job is to launch LOLBins with abuse-shaped command lines. The robust fix for the lab is a one-time Defender exclusion for the script (AMSI honours the `-File` path exclusion; it must pre-exist, since the script's own `-AddDefenderExclusion` cannot cover its first self-scan):
+
 
 ```powershell
-Add-MpPreference -ExclusionPath '<repo>\detections\defence evasion\T1218-System-Binary-Proxy-Execution\telemetry-generator.ps1'
+Add-MpPreference -ExclusionPath 'detections\defence-evasion\T1218-System-Binary-Proxy-Execution\telemetry-generator.ps1'
 ```
 
-For ISE, work from the **saved** file — an unsaved "Untitled" tab has no path for the exclusion to match and is re-scanned on every autosave (this was the source of the recurring ISE popups).
+
 ## Results from chainsaw batch testing
 tests/test_detections.py::test_fixtures_present PASSED                   [  3%]
 tests/test_detections.py::test_no_wiring_errors[NOTSET] SKIPPED (got...) [  6%]

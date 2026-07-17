@@ -50,7 +50,7 @@ index=winevents sourcetype=XmlWinEventLog source="*PowerShell/Operational" Event
     equivalent of VBScript GetObject), and mshta launched from PS. NOTE BindToMoniker
     alone has legit uses (e.g. attaching to a running Office doc) - that's why it only
     reaches High when paired with a remote URL below, never on its own. ```
-| eval hasAltExec  = if(match(ScriptBlockText, "(?i)(WindowsInstaller\.Installer|\.InstallProduct\s*\(|BindToMoniker|\bmshta\b)"), 1, 0)
+| eval hasAltExec  = if(match(ScriptBlockText, "(?i)(WindowsInstaller\.Installer|\.InstallProduct\s*\(|BindToMoniker|\bmshta\b))"), 1, 0)
 
 ``` V2 - remote-source indicator. Benign on its own; only meaningful paired with
     hasAltExec (remote MSI / remote scriptlet = download-and-execute, maps to T1105). ```

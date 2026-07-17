@@ -57,7 +57,7 @@ ser accounts, excluding system activity and machine accounts.
 
 ## Detection ideology & architecture
 
-My design is simple, target T1218.011/010/005 with one sigma yml rule, this will look at the most suspicious occurances for each TTP.
+Target T1218.011/010/005 with one sigma yml rule, this will look at the most suspicious occurances for each TTP.
 Then I'll create an additional sigma rule for correlation that will use sysmon EID 7 as it's log source to detect network connections following the defence evasion detected.
 
 Following this I will correlate the two- Joining on GUID/ DeviceID and create a well reasoned risk system based on these two tables combined.
@@ -71,9 +71,9 @@ I will still allow an event with no network connection to raise a medium/ high a
 
 **Cons**
 - Getting false positives right since this is an official exe signed by Microsoft it'll be difficult to keep low FP.
-Complexity of implementation and ongoing maintanance- Since this detection targets 3 different sub Techniques at once testing and tuning all will be cumbersome, in addition to this building two sigma rules (One big KQL) will add more complexity and room for maintance to be required since theres multiple fields/ log sources in the mix the chances of one needing a change is relatively high.
+- Complexity of implementation and ongoing maintanance- Since this detection targets 3 different sub Techniques at once testing and tuning all will be cumbersome, in addition to this building two sigma rules (One big KQL) will add more complexity and room for maintance to be required since theres multiple fields/ log sources in the mix the chances of one needing a change is relatively high.
 
--Coverage of all three threats simuntaneously may be weaker then if I made an atomic rule for each. 
+- Coverage of all three threats simuntaneously may be weaker then if I made an atomic rule for each- will require tuning inside your environment to ensure low FP rate while catching the threats.
 
 
 ## Chainsaw unit batch testing
