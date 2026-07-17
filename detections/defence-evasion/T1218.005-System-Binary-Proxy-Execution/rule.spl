@@ -7,12 +7,18 @@ Platform:  Splunk SPL. Counterpart to rule.yml (Sigma base).
 Data:      XmlWinEventLog/sysmon: EventID = 1/3
 Author:    William Richardson   Date: 2026-07-16  (V2)
 
-SCOPE: Sysmon 1 covers process creations and the context surrounding them.
-Sysmon 3 covers network traffic, to be used in correlation with rule 1 to provide added context, 
-if an execution results in a network connection a high grade severity will be automatically awarded.
+ Description- Detects three sub-techniques of T1218 System Binary Proxy Execution:
+  Mshta (T1218.005), Regsvr32 (T1218.010) and Rundll32 (T1218.011).
+  These trusted, signed system binaries are abused to proxy the execution of
+  malicious code past application control and signature-based defences.
+  The rule looks for suspicious command-line arguments, suspicious parent/child
+  process relationships, and well-known abuse patterns such as comsvcs.dll
+  MiniDump credential dumping and the regsvr32 "Squiblydoo" remote scriptlet.
+  Intended to be correlated with the companion network_connection rule below
+  into a single KQL rule (rule.kql) with risk scoring.
 
-
-OUT OF SCOPE: 
+OUT OF SCOPE: Detecting child process execution, an attacker could bypass 
+this detection by launching a child process to act out their malicious behaviour.
 
 ASSUMES Splunk_TA_windows auto-extracts ScriptBlockText / ScriptBlockId /
 ProcessID / MessageNumber. If ScriptBlockText is empty, the TA isn't extracting -
@@ -23,12 +29,20 @@ backslashes - replace \. with \\. , \b with \\b , \( with \\( etc. #1 SPL gotcha
 
 Comment syntax (triple-backtick) needs Splunk 8.1+. Strip comments if older.
 =============================================================```
+index=sysmon (EventCode=1 OR EventCode=3)
+ (Image="*\\mshta.exe" OR Image="*\\rundll32.exe" OR Image="*\\regsvr32.exe"
+     OR OriginalFileName IN ("MSHTA.EXE","RUNDLL32.EXE","REGSVR32.EXE"))
+| stats values(EventCode) as events values(CommandLine) as cmdline
+        values(ParentImage) as parent values(Image) as image
+        values(User) as user values(ParentProcessGuid) as parent_guid
+        values(DestinationIp) as dst_ip values(DestinationPort) as dst_port
+        values(DestinationHostname) as dst_host min(_time) as start
+        by ProcessGuid, Computer
+| eval has_network = if(match(mvjoin(events,","),"3"),1,0)
 
-index=winevents sourcetype=XmlWinEventLog source="*PowerShell/Operational" EventCode=4104
 
-
-```Create matching fields```
-``` Find method to evaluate these 3 only when the image is rundll32.exe
+``` --- SIGNALS ------------------------------------------------------------------------- ```
+``` rundll32 ```
 eval hasRundllScriptAbuse = if(match(<fieldName>, "(?i)()"),1,0)
 eval hassuspRundllParent = if(match(<field name>, "(?i)()"),1,0)
 eval hasCredDump = if(match(<fieldName>, "(?i)comsvcs(\.dll)?\s*,\s*(#\+?24|minidump)")1,0)
@@ -38,10 +52,12 @@ eval hasObfusc = if(match(<fieldName>), "(?i)()"),1,0)
 eval hasMshtaParentImg = if(match(<fieldName>, "(?i)()"),1,0)
 eval hasMshtaChild = if(match(<FieldName>, "(?i)())"), 1,0)
 eval hasMshtaCli = if(match(<fieldName>, "()"), 1,0 )
-#regex:
-eval regex
+rex "fieldName= ?<GuidPresent>\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}"
+then if this isnt null its suspicious?^
 
-
+``` regsvr32 ```
+eval hasRegsvrParent = if(match(<fieldName, "(?i)(signal)"),1,0)
+eval hasSquiblydoo = if(match(<fieldName>, "(?i)(signal)"),1,0)
 
 
 ``` --- collapse one execution's many script blocks into ONE row (host + process) ---
@@ -55,21 +71,16 @@ eval regex
 
 
 
-``` --- severity: numeric rank first (so it stays aggregatable), then label. High-first. --- ```
+``` --- severity --- ```
 | eval SeverityRank = case(
-        (anyDownload=1 AND anyMemory=1) OR (anyAltExec=1 AND anyRemote=1), 3,
-        anyDownload=1 OR anyMemory=1 OR anyObfusc=1 OR anyAltExec=1,        2,
+       condition 1 and condition 2),3, (condition 2 and 3), 3,
+       condition 1, 2 and so on
         true(), 1)
 
 ``` --- analyst-facing reason (first match wins -> highest / most-specific first) --- ```
 | eval DetectionReason = case(
-        anyDownload=1 AND anyMemory=1,  "Download + in-memory execution (fused cradle)",
-        anyAltExec=1 AND anyRemote=1,   "Remote COM/LOLBin execution (WindowsInstaller / moniker / mshta + URL)",
-        anyDownload=1,                  "Remote download capability",
-        anyMemory=1,                    "In-memory execution (IEX / ScriptBlock::Create)",
-        anyAltExec=1,                   "Alternative execution primitive (COM installer / moniker / mshta)",
-        anyObfusc=1,                    "Obfuscated PowerShell content",
-        true(),                         "Suspicious PowerShell")
+        has-value , "what this means"
+        true())
 
 | eval Severity = case(SeverityRank=3, "High", SeverityRank=2, "Medium", true(), "Informational")
 | where SeverityRank >= 2
@@ -77,3 +88,18 @@ eval regex
 ``` surface every flag so the analyst sees exactly what fired ```
 | table  <Enter fields>
 | sort - StartTime
+
+
+```
+falsepositives:
+All - Out of scope issue -> If one of reg/rundll/mshta spawns a child process and that process is malicious this detection wouldnt pick it up.
+This is as it would overlap with a T1059.001 rule for malicious parent processes that will actually correlate parents/ grandparents etc.
+  # regsvr32.exe
+  - Legitimate COM/DLL registration by installers launched from script hosts (local file path, no /i URL)
+  # mshta.exe
+  - Legacy internal HTA-based admin tools and line-of-business applications
+  # rundll32.exe
+  - Installers running INF install sections via advpack.dll/setupapi.dll LaunchINFSection
+  - Software updaters invoking vendor DLLs staged in %TEMP% or %APPDATA%
+level: High
+```

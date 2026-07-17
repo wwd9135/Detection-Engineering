@@ -10,7 +10,7 @@ description: |
   process relationships, and well-known abuse patterns such as comsvcs.dll
   MiniDump credential dumping and the regsvr32 "Squiblydoo" remote scriptlet.
   Intended to be correlated with the companion network_connection rule below
-  into a single KQL rule (rule.kql) with risk scoring.
+  into a single SPL rule (rule.SPL) with risk scoring.
 references:
   - https://attack.mitre.org/techniques/T1218/
   - https://attack.mitre.org/techniques/T1218/005/
