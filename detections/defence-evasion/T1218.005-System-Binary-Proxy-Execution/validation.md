@@ -30,7 +30,7 @@
 ---
 ## Chainsaw validation
 
-Fixtures were built with [telemetry-generator.ps1](telemetry-generator.ps1) — one EID 1 EVTX slice per case, `{category}_{name}.evtx` — then hunted with:
+Fixtures were built with [telemetry-generator-benign.ps1](telemetry-generator-benign.ps1) & [telemetry-generator-mal.ps1](telemetry-generator-mal.ps1) — one EID 1 EVTX slice per case, `{category}_{name}.evtx` — then hunted with:
 
 ```
 chainsaw hunt <dir> --sigma rule.yml --mapping tests\mappings\sigma-event-logs-all.yml --csv -o results.csv
@@ -78,3 +78,39 @@ Add-MpPreference -ExclusionPath '<repo>\detections\defence evasion\T1218-System-
 ```
 
 For ISE, work from the **saved** file — an unsaved "Untitled" tab has no path for the exclusion to match and is re-scanned on every autosave (this was the source of the recurring ISE popups).
+## Results from chainsaw batch testing
+tests/test_detections.py::test_fixtures_present PASSED                   [  3%]
+tests/test_detections.py::test_no_wiring_errors[NOTSET] SKIPPED (got...) [  6%]
+tests/test_detections.py::test_fires_on_malicious[T1053.005-Scheduled-task-creation/malicious_mal_installer_temp_task] PASSED [  9%]
+tests/test_detections.py::test_fires_on_malicious[T1053.005-Scheduled-task-creation/malicious_mal_privesc_runlevel_highest] PASSED [ 12%]
+tests/test_detections.py::test_fires_on_malicious[T1053.005-Scheduled-task-creation/malicious_mal_pscmdlet_encoded] PASSED [ 16%]
+tests/test_detections.py::test_fires_on_malicious[T1053.005-Scheduled-task-creation/malicious_mal_schtask_encoded_powershell] PASSED [ 19%]
+tests/test_detections.py::test_fires_on_malicious[T1053.005-Scheduled-task-creation/malicious_mal_wmi_registerbyxml_temp_path] PASSED [ 22%]
+tests/test_detections.py::test_fires_on_malicious[T1059.001-PowerShell-Execution/malicious] PASSED [ 25%]
+tests/test_detections.py::test_fires_on_malicious[T1218.005-System-Binary-Proxy-Execution/malicious_mal_mshta_clsid] PASSED [ 29%]
+tests/test_detections.py::test_fires_on_malicious[T1218.005-System-Binary-Proxy-Execution/malicious_mal_mshta_encoded] PASSED [ 32%]
+tests/test_detections.py::test_fires_on_malicious[T1218.005-System-Binary-Proxy-Execution/malicious_mal_mshta_frombase64string] PASSED [ 35%]
+tests/test_detections.py::test_fires_on_malicious[T1218.005-System-Binary-Proxy-Execution/malicious_mal_regsvr32_parent] PASSED [ 38%]
+tests/test_detections.py::test_fires_on_malicious[T1218.005-System-Binary-Proxy-Execution/malicious_mal_regsvr32_squiblydoo] PASSED [ 41%]
+tests/test_detections.py::test_fires_on_malicious[T1218.005-System-Binary-Proxy-Execution/malicious_mal_regsvr32_suspicious_url] PASSED [ 45%]
+tests/test_detections.py::test_fires_on_malicious[T1218.005-System-Binary-Proxy-Execution/malicious_mal_rundll32_credential_dumping] PASSED [ 48%]
+tests/test_detections.py::test_fires_on_malicious[T1218.005-System-Binary-Proxy-Execution/malicious_mal_rundll32_parent] PASSED [ 51%]
+tests/test_detections.py::test_fires_on_malicious[T1218.005-System-Binary-Proxy-Execution/malicious_mal_rundll32_script_abuse] PASSED [ 54%]
+tests/test_detections.py::test_quiet_on_benign[T1053.005-Scheduled-task-creation/benign_benign_clean_powershell_script] PASSED [ 58%]
+tests/test_detections.py::test_quiet_on_benign[T1053.005-Scheduled-task-creation/benign_benign_signed_backup_task] PASSED [ 61%]
+tests/test_detections.py::test_quiet_on_benign[T1053.005-Scheduled-task-creation/benign_benign_system_maintenance_task] PASSED [ 64%]
+tests/test_detections.py::test_quiet_on_benign[T1053.005-Scheduled-task-creation/benign_benign_user_logon_notepad] PASSED [ 67%]
+tests/test_detections.py::test_quiet_on_benign[T1059.001-PowerShell-Execution/benign] PASSED [ 70%]
+tests/test_detections.py::test_quiet_on_benign[T1218.005-System-Binary-Proxy-Execution/benign_benign_mshta_local_html] PASSED [ 74%]
+tests/test_detections.py::test_quiet_on_benign[T1218.005-System-Binary-Proxy-Execution/benign_benign_mshta_signed_html] PASSED [ 77%]
+tests/test_detections.py::test_quiet_on_benign[T1218.005-System-Binary-Proxy-Execution/benign_benign_mshta_system_html] PASSED [ 80%]
+tests/test_detections.py::test_quiet_on_benign[T1218.005-System-Binary-Proxy-Execution/benign_benign_regsvr32_local_dll] PASSED [ 83%]
+tests/test_detections.py::test_quiet_on_benign[T1218.005-System-Binary-Proxy-Execution/benign_benign_regsvr32_signed_dll] PASSED [ 87%]
+tests/test_detections.py::test_quiet_on_benign[T1218.005-System-Binary-Proxy-Execution/benign_benign_regsvr32_system_dll] PASSED [ 90%]
+tests/test_detections.py::test_quiet_on_benign[T1218.005-System-Binary-Proxy-Execution/benign_benign_rundll32_local_dll] PASSED [ 93%]
+tests/test_detections.py::test_quiet_on_benign[T1218.005-System-Binary-Proxy-Execution/benign_benign_rundll32_signed_dll] PASSED [ 96%]
+tests/test_detections.py::test_quiet_on_benign[T1218.005-System-Binary-Proxy-Execution/benign_benign_rundll32_system_dll] PASSED [100%]
+
+As visible above, all tests passed on first test, with this level of confidence I'm happy to move toward conversion to spl and testing the rule out in production.
+
+# Atomic red team testing
