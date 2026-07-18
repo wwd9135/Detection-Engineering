@@ -113,4 +113,4 @@ tests/test_detections.py::test_quiet_on_benign[T1218.005-System-Binary-Proxy-Exe
 
 As visible above, all tests passed on first test, with this level of confidence I'm happy to move toward conversion to spl and testing the rule out in production.
 
-# Atomic red team testing
+# Atomic red team testing/  SPL rule development

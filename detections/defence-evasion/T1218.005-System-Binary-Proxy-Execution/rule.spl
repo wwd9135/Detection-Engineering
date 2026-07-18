@@ -1,105 +1,171 @@
 ```
 =============================================================
-Detection: System binary process execution, process creation & network connection data used.
-Technique: T1218.005 .010 .011- MSHTA, rundll, regsvr32 combined into one hollistic rule
-Tactic:    Defence evasion
-Platform:  Splunk SPL. Counterpart to rule.yml (Sigma base).
-Data:      XmlWinEventLog/sysmon: EventID = 1/3
-Author:    William Richardson   Date: 2026-07-16  (V2)
+Detection: System Binary Proxy Execution - process creation (Sysmon EID 1)
+           correlated with outbound network connection (Sysmon EID 3).
+Technique: T1218.005 (mshta) / .010 (regsvr32) / .011 (rundll32) - one holistic rule
+Tactic:    Defence Evasion (TA0005)
+Platform:  Splunk SPL. Counterpart to rule.yml (Sigma base, process_creation).
+Data:      XmlWinEventLog/Sysmon: EventCode 1 (process creation) + 3 (network connection)
+Author:    William Richardson   Date: 2026-07-17  (V2 - complete)
 
- Description- Detects three sub-techniques of T1218 System Binary Proxy Execution:
-  Mshta (T1218.005), Regsvr32 (T1218.010) and Rundll32 (T1218.011).
-  These trusted, signed system binaries are abused to proxy the execution of
-  malicious code past application control and signature-based defences.
-  The rule looks for suspicious command-line arguments, suspicious parent/child
-  process relationships, and well-known abuse patterns such as comsvcs.dll
-  MiniDump credential dumping and the regsvr32 "Squiblydoo" remote scriptlet.
-  Intended to be correlated with the companion network_connection rule below
-  into a single KQL rule (rule.kql) with risk scoring.
+Detects three signed system binaries - mshta, regsvr32, rundll32 - being abused to
+proxy execution of malicious code past application control and signature defences.
+One row per proxy-binary process (ProcessGuid): the EID 1 event carries the command
+line / parent-child signals, the EID 3 event (same ProcessGuid) carries the network
+flag. Grouping by ProcessGuid folds both together with max() - a signal that fired on
+the process-creation event survives the collapse, an EID 3 row scores 0 on its own.
 
-OUT OF SCOPE: Detecting child process execution, an attacker could bypass 
-this detection by launching a child process to act out their malicious behaviour.
+SCOPE
+  Sees the proxy binary AS the process (Image = mshta/regsvr32/rundll32) and its own
+  outbound connections. mshta/rundll32/regsvr32 chaining between each other is caught by
+  the parent signals. A proxy binary spawning a *shell* (mshta -> powershell/cmd) is
+  deliberately OUT OF SCOPE - that child-execution chain belongs to a T1059.001 rule,
+  which correlates parents/grandparents. Renamed binaries are caught via OriginalFileName
+  on EID 1, but a renamed binary's EID 3 won't match the image filter (rare edge case).
 
-ASSUMES Splunk_TA_windows auto-extracts ScriptBlockText / ScriptBlockId /
-ProcessID / MessageNumber. If ScriptBlockText is empty, the TA isn't extracting -
-add a rex fallback on _raw.
+FIRING LOGIC (weighted score - see SEVERITY block)
+  Critical = Score >= 5     High = Score 4     Medium = Score 3     Informational = Score 2
+  A network connection only counts when a process-creation signal is already present -
+  a bare proxy binary calling out with no other signal does not fire on its own.
 
-REGEX ESCAPING: if a match() returns nothing, your Splunk version wants doubled
-backslashes - replace \. with \\. , \b with \\b , \( with \\( etc. #1 SPL gotcha.
+SIGNAL WEIGHTS
+  Smoking guns (4): cred_dump (comsvcs MiniDump), squiblydoo_remote (/i:http|ftp). High on
+                    their own, Critical with a second signal or a network hit. Credential
+                    dumping is network-independent, so it does not wait on a connection.
+  Strong (2):       rundll_script_abuse, mshta_cli, mshta_clsid, mshta_parent,
+                    squiblydoo_local, regsvr_parent. Informational alone, Critical + network.
+  Weak (1):         rundll_parent, path_obfuscation. Never fire alone; the
+                    rundll_parent + path_obfuscation combo = 2 (mirrors the Sigma condition).
+  Network (+3):     added once, only when SignalScore >= 1.
 
-Comment syntax (triple-backtick) needs Splunk 8.1+. Strip comments if older.
+TUNING
+  Raise the floor to Score >= 3 to drop Informational if the rundll32/regsvr32 baseline is
+  noisy. rundll_parent lists common shells (cmd/powershell) on purpose - it is weight 1 and
+  cannot fire alone, so a legitimate shell -> rundll32 stays silent unless it also loads a
+  DLL by ordinal / from a user-writable path, or the process calls out to the network.
+
+ASSUMES Splunk_TA_windows auto-extracts Image / ParentImage / CommandLine / OriginalFileName /
+ProcessGuid / User / Destination* from the Sysmon channel. If a match() returns nothing your
+Splunk build wants doubled backslashes - replace \. with \\. , \{ with \\{ etc. (#1 SPL gotcha).
+Triple-backtick comments need Splunk 8.1+; strip them if older.
 =============================================================```
 index=sysmon (EventCode=1 OR EventCode=3)
  (Image="*\\mshta.exe" OR Image="*\\rundll32.exe" OR Image="*\\regsvr32.exe"
      OR OriginalFileName IN ("MSHTA.EXE","RUNDLL32.EXE","REGSVR32.EXE"))
-| stats values(EventCode) as events values(CommandLine) as cmdline
-        values(ParentImage) as parent values(Image) as image
-        values(User) as user values(ParentProcessGuid) as parent_guid
-        values(DestinationIp) as dst_ip values(DestinationPort) as dst_port
-        values(DestinationHostname) as dst_host min(_time) as start
-        by ProcessGuid, Computer
-| eval has_network = if(match(mvjoin(events,","),"3"),1,0)
 
+``` which proxy binary is this - keyed off Image, falling back to OriginalFileName so a
+    renamed binary is still classified on its EID 1 event ```
+| eval proc = case(
+        match(Image,"(?i)\\rundll32\.exe$") OR OriginalFileName=="RUNDLL32.EXE", "rundll32",
+        match(Image,"(?i)\\mshta\.exe$")    OR OriginalFileName=="MSHTA.EXE",    "mshta",
+        match(Image,"(?i)\\regsvr32\.exe$") OR OriginalFileName=="REGSVR32.EXE", "regsvr32",
+        true(), "unknown")
 
-``` --- SIGNALS ------------------------------------------------------------------------- ```
+``` network flag - carried on the EID 3 event, folded onto the process by max() below ```
+| eval isNetwork = if(EventCode==3, 1, 0)
+
+``` --- SIGNALS (per-event; each gated to its binary so a token shared across binaries -
+    e.g. javascript: - is only scored once. EID 3 rows have null CommandLine/ParentImage
+    so they score 0 and are picked up from the EID 1 event by max()). ------------------- ```
+
 ``` rundll32 ```
-eval hasRundllScriptAbuse = if(match(<fieldName>, "(?i)()"),1,0)
-eval hassuspRundllParent = if(match(<field name>, "(?i)()"),1,0)
-eval hasCredDump = if(match(<fieldName>, "(?i)comsvcs(\.dll)?\s*,\s*(#\+?24|minidump)")1,0)
-eval hasObfusc = if(match(<fieldName>), "(?i)()"),1,0)
+| eval rundll_script_abuse = if(proc=="rundll32" AND match(CommandLine, "(?i)(javascript:|vbscript:|mshtml\s*,\s*RunHTMLApplication|mshtml\s*,\s*ShowHTMLDialog|shell32\.dll\s*,\s*ShellExec_RunDLL|zipfldr\.dll\s*,\s*RouteTheCall|url\.dll\s*,\s*OpenURL|url\.dll\s*,\s*FileProtocolHandler|advpack\.dll\s*,\s*LaunchINFSection|setupapi\.dll\s*,\s*InstallHinfSection|pcwutl\.dll\s*,\s*LaunchApplication)"), 1, 0)
+| eval cred_dump         = if(proc=="rundll32" AND match(CommandLine, "(?i)comsvcs(\.dll)?\s*,\s*(#\+?24|minidump)"), 1, 0)
+| eval path_obfuscation  = if(proc=="rundll32" AND match(CommandLine, "(?i)(\.dll\s*,\s*#|%TEMP%|%APPDATA%|%PUBLIC%|Users.Public.|AppData.Local.Temp.|Downloads.)"), 1, 0)
+| eval rundll_parent     = if(proc=="rundll32" AND match(ParentImage, "(?i)\\(mshta|regsvr32|outlook|winword|excel|cmd|powershell|pwsh|wscript|cscript)\.exe$"), 1, 0)
 
-```mshta.exe```
-eval hasMshtaParentImg = if(match(<fieldName>, "(?i)()"),1,0)
-eval hasMshtaChild = if(match(<FieldName>, "(?i)())"), 1,0)
-eval hasMshtaCli = if(match(<fieldName>, "()"), 1,0 )
-rex "fieldName= ?<GuidPresent>\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}"
-then if this isnt null its suspicious?^
+``` mshta ```
+| eval mshta_parent      = if(proc=="mshta" AND match(ParentImage, "(?i)\\(outlook|winword|excel|powerpnt|chrome|msedge|firefox)\.exe$"), 1, 0)
+| eval mshta_cli         = if(proc=="mshta" AND match(CommandLine, "(?i)(javascript:|vbscript:|https?://|GetObject\(|ActiveXObject|CreateObject\(|\.Run\(| -enc|FromBase64String)"), 1, 0)
+| eval mshta_clsid       = if(proc=="mshta" AND match(CommandLine, "(?i)\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}"), 1, 0)
 
-``` regsvr32 ```
-eval hasRegsvrParent = if(match(<fieldName, "(?i)(signal)"),1,0)
-eval hasSquiblydoo = if(match(<fieldName>, "(?i)(signal)"),1,0)
+``` regsvr32 - squiblydoo_remote (a /i:URL) is near-zero-FP; the local scrobj/.sct case is
+    strong but not conclusive, and is suppressed when the remote flag already fired so the
+    same command line is not counted twice. ```
+| eval regsvr_parent     = if(proc=="regsvr32" AND match(ParentImage, "(?i)\\(rundll32|mshta|outlook|winword|excel|chrome|msedge|firefox|wscript|cscript)\.exe$"), 1, 0)
+| eval squiblydoo_remote = if(proc=="regsvr32" AND match(CommandLine, "(?i)/i:(http|ftp)"), 1, 0)
+| eval squiblydoo_local  = if(proc=="regsvr32" AND match(CommandLine, "(?i)(scrobj\.dll|\.sct)") AND squiblydoo_remote==0, 1, 0)
 
+``` --- collapse to one row per process; max() carries any fired signal + the network flag
+    across the EID 1 / EID 3 events that share this ProcessGuid --- ```
+| stats max(cred_dump) as cred_dump max(squiblydoo_remote) as squiblydoo_remote
+        max(rundll_script_abuse) as rundll_script_abuse max(mshta_cli) as mshta_cli
+        max(mshta_clsid) as mshta_clsid max(mshta_parent) as mshta_parent
+        max(squiblydoo_local) as squiblydoo_local max(regsvr_parent) as regsvr_parent
+        max(rundll_parent) as rundll_parent max(path_obfuscation) as path_obfuscation
+        max(isNetwork) as has_network
+        values(proc) as proc values(CommandLine) as CommandLine
+        values(ParentImage) as ParentImage values(Image) as Image values(User) as User
+        values(ParentProcessGuid) as ParentProcessGuid values(DestinationIp) as DestinationIp
+        values(DestinationPort) as DestinationPort values(DestinationHostname) as DestinationHostname
+        min(_time) as StartTime
+        by ProcessGuid, Computer
 
-``` --- collapse one execution's many script blocks into ONE row (host + process) ---
-    aggregate each flag via max(): 1 if ANY block in the execution carried the signal.
-    This will help correlate network traffic directly to the pid that initiated it. ```
-| bin _time span=10m
-| stats summary function(column) AS <Renamed column or same name>
-        summer function 2(column) as etc......
-        by host, pid, _time <CONFIRM FIELD NAMES>
+``` --- SEVERITY - weighted score. Network adds +3 but only when a process-creation signal
+    is already present, so a proxy binary calling out with nothing else stays silent. --- ```
+| eval SignalScore = (cred_dump*4) + (squiblydoo_remote*4)
+                   + (rundll_script_abuse*2) + (mshta_cli*2) + (mshta_clsid*2) + (mshta_parent*2)
+                   + (squiblydoo_local*2) + (regsvr_parent*2)
+                   + (rundll_parent*1) + (path_obfuscation*1)
+| eval Score = SignalScore + if(SignalScore>=1 AND has_network==1, 3, 0)
+| eval Severity = case(Score>=5, "Critical", Score>=4, "High", Score>=3, "Medium", Score>=2, "Informational", true(), "None")
 
+``` firing floor - raise to >= 3 to drop Informational ```
+| where Score >= 2
 
-
-
-``` --- severity --- ```
-| eval SeverityRank = case(
-       condition 1 and condition 2),3, (condition 2 and 3), 3,
-       condition 1, 2 and so on
-        true(), 1)
-
-``` --- analyst-facing reason (first match wins -> highest / most-specific first) --- ```
+``` --- analyst-facing reason (first match wins -> highest / most-specific signal first) --- ```
 | eval DetectionReason = case(
-        has-value , "what this means"
-        true())
+        cred_dump==1,           "rundll32 comsvcs.dll MiniDump - LSASS credential-dump export",
+        squiblydoo_remote==1,   "regsvr32 fetching a remote scriptlet (/i:http|ftp) - Squiblydoo remote payload",
+        rundll_script_abuse==1, "rundll32 proxying execution via a script engine / dangerous DLL export",
+        mshta_clsid==1,         "mshta invoked with a bare COM CLSID instead of a file path",
+        mshta_cli==1,           "mshta command line carries inline script / remote URL / encoded payload",
+        mshta_parent==1,        "mshta spawned by an Office app or browser - typical phishing delivery",
+        squiblydoo_local==1,    "regsvr32 loading a local scriptlet (scrobj.dll / .sct)",
+        regsvr_parent==1,       "regsvr32 spawned by a script host, Office app or browser",
+        (rundll_parent==1 AND path_obfuscation==1), "rundll32 from a shell/proxy parent loading a DLL by ordinal or from a user-writable path",
+        path_obfuscation==1,    "rundll32 loading a DLL by ordinal or from a user-writable path",
+        rundll_parent==1,       "rundll32 spawned by a shell, Office app or proxy binary",
+        true(),                 "suspicious proxy-binary execution")
+| eval DetectionReason = if(has_network==1, DetectionReason . "; process also made an outbound network connection", DetectionReason)
 
-| eval Severity = case(SeverityRank=3, "High", SeverityRank=2, "Medium", true(), "Informational")
-| where SeverityRank >= 2
+``` every signal that fired, so the analyst sees exactly what stacked into the score ```
+| eval Signals = mvappend(
+        if(cred_dump==1,"cred_dump",null()), if(squiblydoo_remote==1,"squiblydoo_remote",null()),
+        if(rundll_script_abuse==1,"rundll_script_abuse",null()), if(mshta_cli==1,"mshta_cli",null()),
+        if(mshta_clsid==1,"mshta_clsid",null()), if(mshta_parent==1,"mshta_parent",null()),
+        if(squiblydoo_local==1,"squiblydoo_local",null()), if(regsvr_parent==1,"regsvr_parent",null()),
+        if(rundll_parent==1,"rundll_parent",null()), if(path_obfuscation==1,"path_obfuscation",null()))
 
-``` surface every flag so the analyst sees exactly what fired ```
-| table  <Enter fields>
-| sort - StartTime
-
+| eval StartTime = strftime(StartTime, "%Y-%m-%d %H:%M:%S")
+| table StartTime, Computer, Severity, Score, proc, DetectionReason, Signals, User,
+        ParentImage, Image, CommandLine, has_network, DestinationIp, DestinationPort,
+        DestinationHostname, ProcessGuid, ParentProcessGuid
+| sort - Score, - StartTime
 
 ```
-falsepositives:
-All - Out of scope issue -> If one of reg/rundll/mshta spawns a child process and that process is malicious this detection wouldnt pick it up.
-This is as it would overlap with a T1059.001 rule for malicious parent processes that will actually correlate parents/ grandparents etc.
-  # regsvr32.exe
-  - Legitimate COM/DLL registration by installers launched from script hosts (local file path, no /i URL)
-  # mshta.exe
-  - Legacy internal HTA-based admin tools and line-of-business applications
-  # rundll32.exe
-  - Installers running INF install sections via advpack.dll/setupapi.dll LaunchINFSection
-  - Software updaters invoking vendor DLLs staged in %TEMP% or %APPDATA%
+------------------------------------------------------------
+FALSE POSITIVES / TUNING
+  regsvr32 - legitimate COM/DLL registration by installers launched from a script host
+             (local file path, no /i:URL, no scrobj.dll). Watch for SCCM/Intune deployment
+             bursts hitting many hosts at once.
+  mshta    - legacy internal HTA-based admin tools and line-of-business apps.
+  rundll32 - biggest FP source: Control Panel routing, printer mgmt, installers running INF
+             sections via advpack/setupapi, updaters loading vendor DLLs from %TEMP%/%APPDATA%.
+             Weak signals (rundll_parent / path_obfuscation) never fire alone for this reason.
+
+ANALYST TRIAGE
+  Pivot fields: Computer, ProcessGuid, ParentProcessGuid, User, Image.
+  1. Read Signals + DetectionReason - what actually fired, and did it also call out (has_network)?
+  2. Decode any encoded/remote payload on CommandLine:
+       powershell -c "[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('<blob>'))"
+  3. If has_network=1, triage Destination* - internal/known-good vs. external/unknown. No IP/host
+     allow-list is baked in (keeps the rule portable); scope it against your own infra.
+  4. Walk the chain by GUID - ParentProcessGuid upward (who launched the proxy binary) and any
+     children downward. mshta/rundll32 -> shell handoff is out of scope here; pivot to T1059.001.
+  5. Confirmed malicious -> isolate the host, capture the command line + any referenced payload,
+     hunt the same Image/CommandLine across other hosts, begin DFIR.
+     Benign -> add User + CommandLine to the tuning allow-list.
+------------------------------------------------------------
 level: High
 ```

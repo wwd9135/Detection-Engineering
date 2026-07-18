@@ -48,9 +48,7 @@ index=winevents sourcetype=XmlWinEventLog source="XmlWinEventLog:Security" Event
 | eval SubjectAccount = coalesce(SubjectDomainName,"") . "\\" . coalesce(SubjectUserName,"")
 
 ``` --- per-action fields (multivalue if the task has >1 <Exec> block); triggers; COM GUID.
-    <Command> is the only mandatory child of <Exec>; <Arguments>/<WorkingDirectory> are
-    OPTIONAL, so a blank there is a genuinely empty field, not a broken mapping (the display
-    normalisation near the end turns those into "(none)"). ```
+```
 | rex field=TaskContent max_match=0 "<Command>(?<Command>[^<]*)</Command>"
 | rex field=TaskContent max_match=0 "<Arguments>(?<Arguments>[^<]*)</Arguments>"
 | rex field=TaskContent max_match=0 "<WorkingDirectory>(?<WorkingDirectory>[^<]*)</WorkingDirectory>"
