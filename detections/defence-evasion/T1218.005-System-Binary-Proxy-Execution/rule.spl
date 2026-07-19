@@ -167,5 +167,4 @@ ANALYST TRIAGE
      hunt the same Image/CommandLine across other hosts, begin DFIR.
      Benign -> add User + CommandLine to the tuning allow-list.
 ------------------------------------------------------------
-level: High
 ```
