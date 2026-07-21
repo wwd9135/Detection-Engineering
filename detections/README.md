@@ -23,8 +23,8 @@ See [docs/detection-template.md](../docs/detection-template.md) for the ADS READ
 | Persistence | T1547 | .001 | [Registry Run Key Persistence](persistence/T1547.001-registry-run-keys/README.md) | High | Stable |
 | Persistence | T1547 | .001 | [Startup Folder Persistence](persistence/T1547.001-Startup-Folder/README.md) | High | Experimental |
 | Persistence | T1053 | .005 | [Scheduled task creation](persistence/T1053.005-Scheduled-task-creation/README.md) | High | Experimental |
-| Execution   | T1059 | .001 | [PowerShell execution](execution/T1059.001-PowerShell-Execution/README.md) | High | Stable
-| Defence Evasion | T1218.005/10/11 | [Suspicious binary execution] ()
+| Execution   | T1059 | .001 | [PowerShell execution](execution/T1059.001-PowerShell-Execution/README.md) | High | Stable |
+| Defence Evasion | T1218 | .005 / .010 / .011 | [System binary proxy execution](defence-evasion/T1218.005-System-Binary-Proxy-Execution/README.md) | Tiered (Medium–Critical) | Experimental |
 ---
 
 ## Adding a New Detection

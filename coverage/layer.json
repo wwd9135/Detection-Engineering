@@ -45,6 +45,39 @@
       "metadata": [],
       "links": [],
       "showSubtechniques": false
+    },
+    {
+      "techniqueID": "T1218.005",
+      "tactic": "defense-evasion",
+      "score": 1,
+      "color": "#ffeda0",
+      "comment": "Experimental — mshta arm of the shared proxy-execution rule. Sigma base validated on a Chainsaw EID 1 fixture batch (18/18); SPL grading verified in Splunk. No Atomic Red Team (EDR blocks T1218 tests at process creation). See detections/defence-evasion/T1218.005-System-Binary-Proxy-Execution/",
+      "enabled": true,
+      "metadata": [],
+      "links": [],
+      "showSubtechniques": false
+    },
+    {
+      "techniqueID": "T1218.010",
+      "tactic": "defense-evasion",
+      "score": 1,
+      "color": "#ffeda0",
+      "comment": "Experimental — regsvr32/Squiblydoo arm of the shared proxy-execution rule. Remote /i:http is creation-blocked by Defender on the lab host, so the fixture uses /i:ftp. See detections/defence-evasion/T1218.005-System-Binary-Proxy-Execution/",
+      "enabled": true,
+      "metadata": [],
+      "links": [],
+      "showSubtechniques": false
+    },
+    {
+      "techniqueID": "T1218.011",
+      "tactic": "defense-evasion",
+      "score": 1,
+      "color": "#ffeda0",
+      "comment": "Experimental — rundll32 arm of the shared proxy-execution rule, including comsvcs MiniDump. Known gap: proxy binary spawning a shell is handed off to T1059.001. See detections/defence-evasion/T1218.005-System-Binary-Proxy-Execution/",
+      "enabled": true,
+      "metadata": [],
+      "links": [],
+      "showSubtechniques": false
     }
   ],
   "gradient": {
