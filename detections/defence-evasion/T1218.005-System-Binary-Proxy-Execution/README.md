@@ -43,7 +43,7 @@ These three are near-permanent fixtures in intrusion reporting, because the abus
 
 ## Strategy Abstract
 
-Two events, one row. The rule pulls EID 1 and EID 3 from the Sysmon channel, filtered to the three images, then folds them together by `ProcessGuid` with `stats max()`. EID 1 carries the command line and the parent, so every content signal scores there. EID 3 carries nothing useful for scoring, but it tells us the process opened a socket — which is the single most valuable piece of context available for these binaries, since none of the three has routine business making outbound connections in most environments. Using `max()` over the group means a signal that fired on the process-creation event survives the collapse, and a bare EID 3 row scores zero on its own.
+Two events, one row. The rule pulls EID 1 and EID 3 from the Sysmon channel, filtered to the three images, then folds them together by `ProcessGuid` with `stats max()`. EID 1 carries the command line and the parent, so every content signal scores there. EID 3 carries nothing useful for scoring, but it tells us the process opened a socket — which is the single most valuable piece of context available for these binaries, since none of the three has routine business making outbound connections in most environments. Using `max()` over the group means a signal that fired on the process-creation event survives the collapse, and a bare EID 3 rows scores zero on its own.
 
 Signals sit in three weight bands:
 
