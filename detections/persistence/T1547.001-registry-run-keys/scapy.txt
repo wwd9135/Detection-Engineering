@@ -1,122 +1,29 @@
-[5:49:28 PM]
->>> Running code...
-[5:49:29 PM]
-Ether / IP / UDP 0.0.0.0:53 > 127.0.0.1:53 / Raw
-[5:49:29 PM]
-###[ Ethernet ]###
-[5:49:29 PM]
-dst = None
-[5:49:29 PM]
-src = 00:00:00:00:00:00
-[5:49:29 PM]
-type = IPv4
-[5:49:29 PM]
-###[ IP ]###
-[5:49:29 PM]
-version = 4
-[5:49:29 PM]
-ihl = None
-[5:49:29 PM]
-tos = 0x0
-[5:49:29 PM]
-len = None
-[5:49:29 PM]
-id = 1
-[5:49:29 PM]
-flags =
-[5:49:29 PM]
-frag = 0
-[5:49:29 PM]
-ttl = 64
-[5:49:29 PM]
-proto = 17
-[5:49:29 PM]
-chksum = None
-[5:49:29 PM]
-src = 0.0.0.0
-[5:49:29 PM]
-dst = 127.0.0.1
-[5:49:29 PM]
-\options \
-[5:49:29 PM]
-###[ UDP ]###
-[5:49:29 PM]
-sport = 53
-[5:49:29 PM]
-dport = 53
-[5:49:29 PM]
-len = None
-[5:49:29 PM]
-chksum = None
-[5:49:29 PM]
-###[ Raw ]###
-[5:49:29 PM]
-load = b''
-[5:49:29 PM]
-Hex: ffffffffffff00000000000008004500001c000100004011fbcf000000007f0000010035003500088073
-[5:49:29 PM]
-sendp: Ether / IP / UDP 0.0.0.0:53 > 127.0.0.1:53 / Raw (Layer 2 (Ethernet))
-[5:49:29 PM]
-✓ Packet sent successfully
-[5:49:29 PM]
-⚠ Missing required layers: Raw
-[5:51:49 PM]
->>> Running code...
-[5:51:50 PM]
-Captured 1 packet.
-[5:51:50 PM]
-###[ Ethernet ]###
-[5:51:50 PM]
-dst = 02:42:0a:09:00:0a
-[5:51:50 PM]
-src = 02:42:0a:09:00:17
-[5:51:50 PM]
-type = IPv4
-[5:51:50 PM]
-###[ IP ]###
-[5:51:50 PM]
-version = 4
-[5:51:50 PM]
-ihl = 5
-[5:51:50 PM]
-tos = 0x0
-[5:51:50 PM]
-len = 48
-[5:51:50 PM]
-id = 1
-[5:51:50 PM]
-flags =
-[5:51:50 PM]
-frag = 0
-[5:51:50 PM]
-ttl = 64
-[5:51:50 PM]
-proto = 17
-[5:51:50 PM]
-chksum = 0x668a
-[5:51:50 PM]
-src = 10.9.0.23
-[5:51:50 PM]
-dst = 10.9.0.10
-[5:51:50 PM]
-\options \
-[5:51:50 PM]
-###[ UDP ]###
-[5:51:50 PM]
-sport = 53001
-[5:51:50 PM]
-dport = 31337
-[5:51:50 PM]
-len = 28
-[5:51:50 PM]
-chksum = 0x3259
-[5:51:50 PM]
-###[ Raw ]###
-[5:51:50 PM]
-load = b'status? nonce=7f3a9c'
-[5:51:50 PM]
-IP: 10.9.0.23 -> 10.9.0.10
-[5:51:50 PM]
+10.9.0.23 -> 10.9.0.10
 UDP: 53001 -> 31337
-[5:51:50 PM]
-Payload: b'status? nonce=7f3a9c'
+status = ok
+
+
+# Keep everything else — including nonce — unchanged
+response_payload = payload.replace(b"status?", b"status=ok", 1)
+
+response = (
+    Ether(
+        src=probe[Ether].dst,
+        dst=probe[Ether].src
+    )
+    /
+    IP(
+        src=probe[IP].dst,
+        dst=probe[IP].src
+    )
+    /
+    UDP(
+        sport=probe[UDP].dport,
+        dport=probe[UDP].sport
+    )
+    /
+    Raw(load=response_payload)
+)
+
+response.show()
+sendp(response)
