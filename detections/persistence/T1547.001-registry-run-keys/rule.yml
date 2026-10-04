@@ -15,7 +15,7 @@ date: 2026-06-14
 modified: 2026-06-14
 tags:
   - attack.persistence
-  - attack.t1547.001
+  - attack.t1547.001 
 logsource:
   product: windows
   category: registry_set
@@ -27,14 +27,11 @@ detection:
       - '\Software\Microsoft\Windows\CurrentVersion\RunOnce\'
       - '\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run\'
       - '\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce\'
-  # Exclude values written by well-known, high-confidence system processes.
-  # Keep this list tight — every entry here is a potential blind spot.
   filter_system_processes:
     Image|startswith:
       - 'C:\Windows\System32\msiexec.exe'
       - 'C:\Windows\SysWOW64\msiexec.exe'
   filter_empty_value:
-    # An empty Details field can indicate a key deletion being logged as a set — not persistence.
     Details: ''
   condition: selection and not 1 of filter_*
 falsepositives:
