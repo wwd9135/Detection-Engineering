@@ -1,4 +1,4 @@
-# Detection Engineering toolchain
+# Detection Engineering toolchain.
 # Install with: pip install -r requirements.txt
 #
 # Python 3.10+ required.
