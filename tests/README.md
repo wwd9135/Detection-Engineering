@@ -21,7 +21,7 @@ tests/
 │       ├── malicious.evtx       # attack behaviour — rule MUST fire
 │       └── benign.evtx          # normal/near-miss activity — rule MUST stay quiet
 ├── mappings/
-│   └── sigma-event-logs-all.yml # NOT committed — extracted from Chainsaw tarball by CI
+│   └── sigma-event-logs-all.yml # committed mapping with custom TaskContent field
 ├── fixtures/readme.md           # per-technique capture notes
 ├── test_detections.py           # pytest harness
 └── README.md                    # this file
@@ -50,18 +50,16 @@ lowercase). Windows hides case mismatches; CI on Ubuntu does not.
 
 File: `.github/workflows/Sigma_Lint.yml`
 
-| Job | What it does | Blocks merge? |
-|---|---|---|
-| `lint` | `sigma check detections/` — validates rule syntax | Yes |
-| `compile-test` | `sigma convert` to KQL — catches backend issues | No (`continue-on-error`) |
-| `test-detections` | Chainsaw + pytest against EVTX fixtures | Yes |
-
-**Triggers:** any push or PR touching `detections/**`, `tests/**`,
-`requirements.txt`, or the workflow file itself.
+The workflow runs six jobs on every push and PR, plus manual runs. See the
+[root README](../README.md#ci-checks) for the full job table and the
+[contributing guide](../docs/contributing.md) for ATT&CK, overlap, and secret
+scanning details and local commands.
 
 The `test-detections` job installs Chainsaw from the latest GitHub release and
-extracts `sigma-event-logs-all.yml` from the tarball at run time — that mapping
-file is not committed to the repo.
+uses the committed `tests/mappings/sigma-event-logs-all.yml` mapping. This mapping
+includes our custom TaskContent field for scheduled-task detections. The job
+runs `python -m pytest tests/test_detections.py -v`; the new validator tests in
+`tests/ci/` run separately in the ATT&CK and secret-scanning jobs.
 
 ---
 
@@ -138,7 +136,7 @@ git commit -m "test: add EVTX fixtures for <TECHNIQUE-ID>"
 git push
 ```
 
-CI triggers automatically because `tests/**` is in the path filter.
+CI triggers automatically on every push and pull request.
 
 ---
 

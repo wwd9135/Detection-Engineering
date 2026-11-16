@@ -1,0 +1,4 @@
+# Isolated dependencies for the ATT&CK and advisory overlap jobs.
+PyYAML==6.0.3
+pySigma==2.1.0
+pytest==9.2.0

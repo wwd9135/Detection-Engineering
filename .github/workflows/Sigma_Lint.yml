@@ -1,61 +1,17 @@
-# ============================================================
-# CI Workflow: Sigma Lint + Compile
-# ============================================================
-#
-# PURPOSE
-# -------
-# Automatically validate every Sigma rule in the detections/
-# folder on every push and pull request. Two jobs:
-#
-#   1. lint        — runs `sigma check` to validate rule syntax
-#                    and best practices. Fails the build on error.
-#   2. compile-test — runs `sigma convert` to compile rules to KQL
-#                    as a compile-sanity check. Marked
-#                    continue-on-error so it won't block merges
-#                    while the pipeline is being refined.
-#   3. Chainsaw test-detections - runs Chainsaw to test detections against sample data. Fails the build on error.
-# ============================================================
+# Six checks: syntax, conversion, Chainsaw, ATT&CK, overlaps, and secrets.
+# Conversion remains advisory while the existing backend pipeline is refined.
+name: Detection Engineering CI
 
-# The 'name' key is what GitHub displays as the workflow title
-# in the Actions tab.
-name: Sigma Lint and Compile
-
-# ============================================================
-# TRIGGERS (on:)
-# ============================================================
-# Control when this workflow runs.
-#
-# 'push' fires on every commit pushed to any branch.
-# 'pull_request' fires when a PR is opened, updated, or synced.
-#
-# 'paths' limits the trigger: this workflow only runs when
-# files under detections/ are modified. Pushes that only touch
-# docs/ or README.md won't trigger a lint run — keeps CI fast.
-# ============================================================
+# Run for every PR/push, including changes to docs and config: secrets can
+# appear anywhere, and required checks must not remain pending due to filters.
 on:
   push:
-    paths:
-      - 'detections/**'       # any file inside detections/
-      - 'tests/**'            # fixture evtx files and test harness
-      - 'requirements.txt'    # toolchain change should re-validate
-      - 'sigma-validation.yml'  # validator config change should re-validate
-      - '.github/workflows/Sigma_Lint.yml'  # self: workflow file change
   pull_request:
-    paths:
-      - 'detections/**'
-      - 'tests/**'
-      - 'requirements.txt'
-      - 'sigma-validation.yml'
-      - '.github/workflows/Sigma_Lint.yml'
   workflow_dispatch:
-    
 
-# ============================================================
-# JOBS
-# ============================================================
-# Jobs run in parallel by default unless you specify 'needs:'.
-# Each job runs in a fresh virtual machine (the 'runner').
-# ============================================================
+permissions:
+  contents: read
+
 jobs:
 
   # ----------------------------------------------------------
@@ -234,5 +190,82 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
       - run: pip install pytest
-      - run: pytest tests/ -v
-  
+      - run: python -m pytest tests/test_detections.py -v
+
+  attack-mapping:
+    name: Validate MITRE ATT&CK mappings
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+      - run: python -m pip install -r requirements-ci.txt
+      - name: Test CI validators
+        run: python -m pytest tests/ci/ -v
+      - name: Check tags against current Enterprise ATT&CK
+        run: python -m scripts.ci.attack
+
+  duplicate-rules:
+    name: Review duplicate and redundant rules (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+      - run: python -m pip install -r requirements-ci.txt
+      # Findings emit warnings and return zero. Tool/config errors still fail
+      # so a broken analyzer cannot silently report a successful review.
+      - name: Report overlaps and redundant conditions
+        run: python -m scripts.ci.duplicates
+
+  secret-scan:
+    name: Scan changed commits for secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install checksum-pinned Gitleaks
+        shell: bash
+        env:
+          GITLEAKS_VERSION: '8.30.1'
+          GITLEAKS_SHA256: '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'
+        run: |
+          set -euo pipefail
+          tool_dir="$RUNNER_TEMP/gitleaks"
+          mkdir -p "$tool_dir"
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            --output "$tool_dir/gitleaks.tar.gz"
+          echo "$GITLEAKS_SHA256  $tool_dir/gitleaks.tar.gz" | sha256sum --check
+          tar -xzf "$tool_dir/gitleaks.tar.gz" -C "$tool_dir" gitleaks
+          echo "$tool_dir" >> "$GITHUB_PATH"
+      - name: Test secret scanning on temporary Git histories
+        run: |
+          python -m pip install pytest==9.2.0
+          python -m pytest tests/ci/test_secrets.py -v
+      - name: Scan PR or push commit range (redacted)
+        env:
+          SCAN_EVENT: ${{ github.event_name }}
+          SCAN_BASE: ${{ github.event.pull_request.base.sha }}
+          SCAN_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          SCAN_BEFORE: ${{ github.event.before }}
+        run: python -m scripts.ci.secrets

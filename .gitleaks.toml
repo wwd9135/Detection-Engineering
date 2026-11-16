@@ -1,0 +1,25 @@
+title = "Detection Engineering secret scanning"
+
+[extend]
+useDefault = true
+
+# Keep the built-in provider-token and private-key rules, and also catch
+# quoted password assignments in YAML, scripts, and config without entropy limits.
+[[rules]]
+id = "hardcoded-password"
+description = "Quoted hardcoded password assignment"
+regex = '''(?i)\b(?:password|passwd|pwd)\b[\s"']*[:=]\s*["']([^\r\n"']{4,})["']'''
+secretGroup = 1
+keywords = ["password", "passwd", "pwd"]
+
+[[rules.allowlists]]
+description = "Explicit environment references and angle-bracket placeholders"
+regexTarget = "secret"
+regexes = ['''^<[^>]+>$''', '''^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$''']
+
+[[rules]]
+id = "hardcoded-password-unquoted"
+description = "Unquoted hardcoded password assignment"
+regex = '''(?i)\b(?:password|passwd|pwd)\b[ \t]*[:=][ \t]*([A-Za-z0-9][A-Za-z0-9!@$%^&*_.:/+=?-]{3,})(?:[ \t\r\n,;#]|$)'''
+secretGroup = 1
+keywords = ["password", "passwd", "pwd"]

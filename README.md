@@ -82,6 +82,28 @@ See [docs/naming-conventions.md](docs/naming-conventions.md) for the full standa
 
 ---
 
+## CI checks
+
+[Detection Engineering CI](.github/workflows/Sigma_Lint.yml) runs **six jobs** on
+every pull request and push, plus manual runs. There are no path filters, so
+changes to tests, configuration, and documentation also receive secret scanning.
+
+| Job | Purpose | Failure policy |
+|---|---|---|
+| `lint` | Validate Sigma syntax and conventions | Fails on errors |
+| `compile-test` | Convert Sigma to KQL | Advisory while the existing backend pipeline is refined |
+| `test-detections` | Run Chainsaw against malicious and benign EVTX fixtures | Fails on errors |
+| `attack-mapping` | Validate technique/sub-technique IDs and tactics against current Enterprise ATT&CK STIX | Fails on unknown, malformed, revoked, or deprecated entries |
+| `duplicate-rules` | Find identical logic, similar rules sharing a technique, reused UUIDs, and redundant conditions | Findings are warnings for review |
+| `secret-scan` | Run Gitleaks on all commits introduced by the PR or push | Fails on findings or scanner errors |
+
+The new checks report in job logs and the GitHub Actions job summary. See the
+[contributing guide](docs/contributing.md) for local commands, scan scope, and
+how to resolve findings. Repository branch protection must require the blocking
+checks to enforce them at merge time.
+
+---
+
 ## Disclaimer
 
 All rules, log samples, and test evidence in this repo were generated in a personal home lab on equipment I own. No employer data, no production systems, no real internal hostnames or IP addresses appear anywhere in this repository.
